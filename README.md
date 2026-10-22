@@ -32,6 +32,7 @@ Viết lại độc lập theo hành vi của TobyFlow (đối chiếu với 2 v
 
 AutoFlow không dùng API key hay server trung gian: nó điều khiển trực tiếp trang Google Flow, ChatGPT, Gemini, Grok bằng **phiên đăng nhập trên trình duyệt của bạn**, nên mọi lượt tạo tính vào hạn mức gói tài khoản đó (Free / Plus / Pro / Ultra…).
 - Bánh răng → **Cài đặt → Tài khoản AI**: trạng thái từng tài khoản (✓ Ready / Cần đăng nhập / Chưa mở / Chưa vào project), nút **Kết nối** (mở trang để đăng nhập) và **Kiểm tra**.
+- Gen: nút **📷 Chụp màn hình** thêm ảnh chụp tab đang mở làm ảnh tham chiếu.
 - Trợ lý prompt kiểm tra Ready trước khi gửi và hỏi xác nhận.
 
 ## AI Agent (MCP) và Telegram

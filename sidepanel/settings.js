@@ -71,8 +71,14 @@ document.addEventListener('input', (e) => { if (e.target.dataset.s) { readFields
 async function saveAll() {
   readFields();
   if (s.selectors) { try { JSON.parse(s.selectors); } catch (_) { toast('Selector JSON không hợp lệ'); return false; } }
+  // Chỉ ghi các trường có trên form (+ token MCP): giá trị side panel đổi trong lúc cửa sổ này mở
+  // (vd. chat ID Telegram vừa liên kết, Parallel) không bị bản cũ ghi đè.
+  const keys = new Set([...document.querySelectorAll('[data-s]')].map((el) => el.dataset.s));
+  keys.add('mcpToken');
+  const patch = Object.fromEntries([...keys].map((k) => [k, s[k]]));
   const { aflSettings = {} } = await chrome.storage.local.get('aflSettings');
-  await chrome.storage.local.set({ aflSettings: { ...aflSettings, ...s } });
+  if (aflSettings.tgChatId && !patch.tgChatId) patch.tgChatId = aflSettings.tgChatId;
+  await chrome.storage.local.set({ aflSettings: { ...aflSettings, ...patch } });
   chrome.runtime.sendMessage({ type: 'afl:settingsChanged' }).catch(() => {});
   return true;
 }

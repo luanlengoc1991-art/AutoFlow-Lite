@@ -253,6 +253,15 @@ async function addRefFiles(files) {
   if (imgs.length) toast(`Đã thêm ${imgs.length} ảnh`);
 }
 $('ref-drop').addEventListener('click', () => $('ref-file').click());
+// Chụp vùng nhìn thấy của tab đang mở trong cửa sổ hiện tại làm ảnh tham chiếu.
+$('ref-capture').addEventListener('click', async () => {
+  try {
+    const win = await chrome.windows.getLastFocused({ windowTypes: ['normal'] });
+    const dataUrl = await chrome.tabs.captureVisibleTab(win.id, { format: 'png' });
+    g().refIds.push(store.addRef({ name: `chup_${Date.now()}.png`, mime: 'image/png', dataUrl }));
+    saveGen(); renderRefs(); toast('Đã thêm ảnh chụp màn hình');
+  } catch (e) { toast('Không chụp được tab này: ' + (e.message || e)); }
+});
 $('ref-file').addEventListener('change', (e) => { addRefFiles(e.target.files); e.target.value = ''; });
 const dz = $('ref-drop');
 dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('over'); });
