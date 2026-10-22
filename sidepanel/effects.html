@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Effects · AutoFlow</title>
+  <link rel="stylesheet" href="tools.css">
+</head>
+<body>
+  <header class="top">
+    <h1><span class="logo">✦</span>Effects <span class="muted" style="font-weight:400;font-size:13px">Áp hiệu ứng lên ảnh bằng Google Flow</span></h1>
+    <span class="spacer"></span>
+    <span class="muted" id="queue-info"></span>
+  </header>
+  <div class="layout">
+    <section class="left">
+      <div>
+        <h3>1. Ảnh gốc</h3>
+        <div class="zone" id="zone"></div>
+        <input type="file" id="file" accept="image/*" hidden>
+      </div>
+      <div>
+        <h3>2. Hiệu ứng</h3>
+        <div class="cats" id="cats"></div>
+        <div class="fx-grid" id="fx-grid"></div>
+      </div>
+      <div class="field">
+        <label>Cường độ <span id="intensity-val">75%</span></label>
+        <input type="range" id="intensity" min="10" max="100" step="5" value="75">
+      </div>
+      <div class="field">
+        <label>Prompt (có thể sửa) <a href="#" id="reset-prompt" class="muted">tạo lại</a></label>
+        <textarea id="prompt"></textarea>
+      </div>
+      <div class="row">
+        <div class="field" style="flex:2"><span class="lbl">Model</span><select id="model"></select></div>
+        <div class="field" style="flex:1"><span class="lbl">Số ảnh</span><select id="qty"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
+      </div>
+      <div class="field"><span class="lbl">Tỉ lệ</span><div class="pills" id="ratios"></div></div>
+      <button class="go" id="go">✦ Tạo hiệu ứng</button>
+      <p class="hint">Ảnh gốc được gửi làm ảnh tham chiếu cho Flow kèm prompt hiệu ứng. Kết quả được tự tải về và lưu vào lịch sử.</p>
+    </section>
+    <section class="right">
+      <div class="row" style="margin-bottom:10px"><h3 style="margin:0">Kết quả</h3><span class="spacer"></span><button class="btn" id="clear">Xoá danh sách</button></div>
+      <div class="res-grid" id="results"></div>
+      <p class="empty" id="empty">Chọn ảnh, chọn hiệu ứng rồi bấm "Tạo hiệu ứng".</p>
+    </section>
+  </div>
+  <div class="toast" id="toast" hidden></div>
+  <script type="module" src="effects.js"></script>
+</body>
+</html>

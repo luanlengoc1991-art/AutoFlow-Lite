@@ -1,0 +1,104 @@
+{
+  "manifest_version": 3,
+  "name": "AutoFlow Lite",
+  "short_name": "AutoFlow",
+  "version": "0.4.0",
+  "description": "Tự động hoá Google Flow, ChatGPT, Gemini, Grok: chạy hàng loạt prompt ảnh/video, workflow, ảnh tham chiếu, tự tải kết quả.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "sidePanel",
+    "tabs",
+    "scripting",
+    "downloads",
+    "notifications",
+    "declarativeNetRequestWithHostAccess"
+  ],
+  "host_permissions": [
+    "https://flow.google.com/*",
+    "https://labs.google/*",
+    "https://storage.googleapis.com/*",
+    "https://*.googleusercontent.com/*",
+    "https://chatgpt.com/*",
+    "https://*.oaiusercontent.com/*",
+    "https://gemini.google.com/*",
+    "https://grok.com/*",
+    "https://*.grok.com/*",
+    "https://*.x.ai/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://api.telegram.org/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/index.html"
+  },
+  "action": {
+    "default_title": "Mở AutoFlow"
+  },
+  "commands": {
+    "toggle-run": {
+      "suggested_key": {
+        "default": "Alt+G"
+      },
+      "description": "Bắt đầu / tạm dừng hàng đợi"
+    }
+  },
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "flow_media_headers",
+        "enabled": true,
+        "path": "rules/flow-media-headers.json"
+      }
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://flow.google.com/*",
+        "https://labs.google/fx/*"
+      ],
+      "js": [
+        "content/flow-driver.js",
+        "content/tracker.js",
+        "content/main.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://gemini.google.com/*",
+        "https://grok.com/*"
+      ],
+      "js": [
+        "content/chat-driver.js",
+        "content/tracker.js",
+        "content/chat-main.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://flow.google.com/*",
+        "https://labs.google/fx/*",
+        "https://chatgpt.com/*",
+        "https://gemini.google.com/*",
+        "https://grok.com/*"
+      ],
+      "js": [
+        "page-bridge.js"
+      ],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    }
+  ]
+}

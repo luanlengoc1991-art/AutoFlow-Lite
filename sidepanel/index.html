@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AutoFlow</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Biểu tượng SVG dùng chung -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 2l2.2 6.6L21 11l-6.8 2.4L12 20l-2.2-6.6L3 11l6.8-2.4z" fill="currentColor"/></symbol>
+      <symbol id="i-book" viewBox="0 0 24 24"><path d="M5 4h10a3 3 0 013 3v13H8a3 3 0 01-3-3zM5 17a3 3 0 013-3h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+      <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+      <symbol id="i-term" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 10l3 2-3 2M12.5 15H17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+      <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/><path d="M4 17l5-4.5 4 3.5 3-2.5 4.5 3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+      <symbol id="i-video" viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 10.5l5-3v9l-5-3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V5M7.5 9.5L12 5l4.5 4.5M5 19h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5M12 17v-6M9.5 13.5L12 11l2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8M16 4v6M10 14v6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+      <symbol id="i-refimg" viewBox="0 0 24 24"><rect x="3" y="3" width="12" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M9 21h9a3 3 0 003-3V9" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5h3v14H8zM13 5h3v14h-3z" fill="currentColor"/></symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></symbol>
+      <symbol id="i-retry" viewBox="0 0 24 24"><path d="M4 12a8 8 0 0113.7-5.6L20 8.5M20 4v4.5h-4.5M20 12a8 8 0 01-13.7 5.6L4 15.5M4 20v-4.5h4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+      <symbol id="i-sync" viewBox="0 0 24 24"><path d="M20 11a8 8 0 00-14.3-4.3L4 8.5M4 4v4.5h4.5M4 13a8 8 0 0014.3 4.3l1.7-1.8M20 20v-4.5h-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-flow" viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="6" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="14" y="14" width="7" height="6" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 7h4a3 3 0 013 3v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+      <symbol id="i-wand" viewBox="0 0 24 24"><path d="M4 20L15 9M14 4v3M19 9h-3M17.5 5.5l-2 2M10 4.5l.5 1.5M19.5 13l-1.5-.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+      <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+      <symbol id="i-shapes" viewBox="0 0 24 24"><circle cx="8" cy="8" r="4.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M14 12h7v8h-8v-7.5M3 20l4.5-7 4.5 7z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+      <symbol id="i-orbit" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M22 12h-4M6 12H2M12 6V2M12 22v-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+      <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    </defs>
+  </svg>
+
+  <header class="topbar">
+    <div class="logo"><svg><use href="#i-spark"/></svg></div>
+    <div class="top-actions">
+      <button id="flow-status" class="flow-pill" title="Trạng thái kết nối Google Flow"><span class="dot"></span><span class="label">Flow</span></button>
+      <button id="btn-settings" class="icon-btn" title="Cài đặt"><svg><use href="#i-gear"/></svg></button>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="gen" role="tab"><svg><use href="#i-spark"/></svg>Gen</button>
+    <button class="tab" data-tab="workflow" role="tab"><svg><use href="#i-flow"/></svg>Workflow</button>
+    <button class="tab" data-tab="prompts" role="tab"><svg><use href="#i-book"/></svg>Prompts</button>
+    <button class="tab" data-tab="tasks" role="tab"><svg><use href="#i-copy"/></svg>Tasks</button>
+    <span class="tab-sep"></span>
+    <button class="tab icon-only" data-tab="tools" role="tab" title="Công cụ"><svg><use href="#i-shapes"/></svg></button>
+    <button class="tab icon-only" data-tab="queue" role="tab" title="Hàng đợi"><svg><use href="#i-list"/></svg><span class="badge" id="tasks-badge" hidden></span></button>
+    <button class="tab icon-only" data-tab="history" role="tab" title="Lịch sử"><svg><use href="#i-clock"/></svg></button>
+    <button class="tab icon-only" data-tab="logs" role="tab" title="Nhật ký"><svg><use href="#i-term"/></svg></button>
+  </nav>
+
+  <main>
+    <!-- ================= GEN ================= -->
+    <section class="pane active" id="pane-gen">
+      <div class="row-head">
+        <div class="row-title"><svg><use href="#i-image"/></svg>Prompt <span class="muted" id="prompt-count">0 prompt</span></div>
+        <label class="switch"><input type="checkbox" id="gen-multi"><span></span>Multi-Prompt</label>
+      </div>
+      <div class="editor-card">
+        <textarea id="gen-text" placeholder="Nhập prompt…&#10;&#10;Bật Multi-Prompt: mỗi dòng là 1 prompt&#10;Biến ngẫu nhiên: một {chú mèo|chú chó} trên bãi biển&#10;Nhân vật Flow: @char:Tên  ·  Giọng: @voice:Tên"></textarea>
+        <div class="mention-menu" id="mention-menu" hidden></div>
+        <div class="editor-tools">
+          <button class="chip" id="btn-assistant" title="Nhờ ChatGPT/Gemini/Grok viết prompt"><svg><use href="#i-wand"/></svg>Trợ lý</button>
+          <button class="chip" id="btn-library" title="Chèn từ thư viện prompt"><svg><use href="#i-book"/></svg>Thư viện</button>
+          <button class="chip" id="btn-import" title="Nhập .txt hoặc .csv (có cột prompt, type, model, ratio, quantity…)"><svg><use href="#i-file"/></svg>Import .txt/.csv</button>
+          <input type="file" id="file-import" accept=".txt,.csv,text/plain,text/csv" hidden>
+          <span class="spacer"></span>
+          <span class="muted small" id="char-count">0 ký tự</span>
+          <button class="icon-btn small" id="btn-save-prompt" title="Lưu vào thư viện"><svg><use href="#i-plus"/></svg></button>
+        </div>
+      </div>
+      <div class="split-row" id="split-row">
+        <span class="muted small">Tách prompt:</span>
+        <div class="seg small">
+          <button data-split="blank" class="active">Dòng trống</button>
+          <button data-split="line">Mỗi dòng</button>
+        </div>
+      </div>
+      <p class="prompt-hint" id="prompt-hint">○ Tách mỗi prompt bằng một dòng trống</p>
+
+      <div class="provider" id="provider-row">
+        <button class="prov" data-provider="flow"><span class="g-dot"></span>Flow</button>
+        <button class="prov" data-provider="chatgpt"><span class="p-dot" style="background:#10a37f"></span>ChatGPT</button>
+        <button class="prov" data-provider="gemini"><span class="p-dot" style="background:linear-gradient(135deg,#4285f4,#a142f4)"></span>Gemini</button>
+        <button class="prov" data-provider="grok"><span class="p-dot" style="background:#e8e8e8"></span>Grok</button>
+      </div>
+
+      <div id="chat-controls" hidden>
+        <div class="row-head">
+          <div class="row-title"><svg><use href="#i-sliders"/></svg>Cài đặt chat</div>
+          <button class="chip" id="btn-open-provider"><svg><use href="#i-up"/></svg>Mở trang</button>
+        </div>
+        <div class="controls">
+          <div class="seg" id="chat-mode">
+            <button data-mode="image" class="active">Tạo ảnh</button>
+            <button data-mode="text">Trả lời văn bản</button>
+          </div>
+          <label class="switch"><input type="checkbox" id="chat-newchat"><span></span>Chat mới mỗi prompt</label>
+        </div>
+        <p class="hint">Prompt được gửi lần lượt vào trang chat (đã đăng nhập). Ảnh tạo ra / câu trả lời được tải về và lưu vào lịch sử.</p>
+      </div>
+
+      <div id="flow-controls">
+      <div class="row-head">
+        <div class="row-title"><svg><use href="#i-sliders"/></svg>Cài đặt</div>
+        <button class="chip" id="btn-sync" title="Đọc model, tuỳ chọn, nhân vật và giọng nói thật từ trang Flow"><svg><use href="#i-sync"/></svg>Đồng bộ từ Flow</button>
+      </div>
+      <div class="controls">
+        <div class="seg type-seg" id="gen-type">
+          <button data-type="image" class="active" title="Ảnh"><svg><use href="#i-image"/></svg></button>
+          <button data-type="video" title="Video"><svg><use href="#i-video"/></svg></button>
+        </div>
+        <select id="gen-model" class="pill-select grow" title="Model"></select>
+        <select id="gen-ratio" class="pill-select" title="Tỉ lệ khung hình"></select>
+        <div class="stepper" title="Số kết quả mỗi prompt">
+          <button id="qty-dec">−</button><span id="qty-val">1</span><button id="qty-inc">+</button>
+        </div>
+      </div>
+      <div class="controls">
+        <button class="chip" id="btn-character" title="Nhân vật đã tạo trên Flow (bấm Đồng bộ từ Flow để lấy danh sách)"><svg><use href="#i-spark"/></svg><span id="character-label">Nhân vật</span></button>
+        <button class="chip" id="btn-style" title="Phong cách gắn vào mọi prompt"><svg><use href="#i-wand"/></svg><span id="style-label">Phong cách</span></button>
+      </div>
+      <div class="controls" id="video-controls" hidden>
+        <select id="gen-vmode" class="pill-select grow" title="Kiểu tạo video">
+          <option value="text">Text → Video</option>
+          <option value="frames">Frames → Video</option>
+          <option value="ingredients">Ingredients → Video</option>
+        </select>
+        <select id="gen-duration" class="pill-select" title="Thời lượng"></select>
+        <select id="gen-resolution" class="pill-select" title="Độ phân giải tạo"></select>
+      </div>
+      </div>
+      <div class="controls">
+        <label class="inline-field">Lặp <input type="number" id="gen-repeat" min="1" max="50" value="1"></label>
+        <label class="inline-field grow">Biến {a|b}
+          <select id="gen-spin" class="pill-select">
+            <option value="random">Ngẫu nhiên</option>
+            <option value="all">Tất cả tổ hợp</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="row-head">
+        <div class="row-title"><svg><use href="#i-refimg"/></svg>Ảnh tham chiếu <span class="muted" id="ref-count"></span></div>
+        <select id="gen-refmode" class="pill-select" title="Cách gán ảnh cho prompt">
+          <option value="all">Tất cả (mọi prompt dùng mọi ảnh)</option>
+          <option value="mention">Mention (@img1, @img2…)</option>
+          <option value="each">Thứ tự (ảnh i → prompt i)</option>
+        </select>
+      </div>
+      <div class="ref-zone">
+        <button class="dropzone" id="ref-drop"><svg><use href="#i-upload"/></svg>Chọn ảnh / Kéo thả vào đây</button>
+        <input type="file" id="ref-file" accept="image/*" multiple hidden>
+        <div class="ref-thumbs" id="ref-thumbs"></div>
+      </div>
+      <p class="hint" id="ref-hint"></p>
+
+      <div class="controls">
+        <label class="switch"><input type="checkbox" id="gen-chain"><span></span>Dùng kết quả trước làm tham chiếu</label>
+        <select id="gen-chainmode" class="pill-select grow">
+          <option value="last">Chỉ kết quả ngay trước</option>
+          <option value="all">Tất cả kết quả trước</option>
+        </select>
+      </div>
+      <div class="controls">
+        <label class="switch"><input type="checkbox" id="gen-autodl"><span></span>Tự tải</label>
+        <input type="text" id="gen-folder" class="folder-inp grow" title="Thư mục trong Downloads" placeholder="AutoFlow">
+        <select id="gen-dlres" class="pill-select" title="Độ phân giải tải về (2K/4K, 1080p/4K tải qua menu upscale của Flow)">
+          <option value="original">Gốc</option>
+          <option value="2k">2K</option>
+          <option value="4k">4K</option>
+        </select>
+      </div>
+      <div class="parallel-row"><button class="chip parallel" id="btn-parallel" title="Chạy song song tối đa 3 task Flow"><svg><use href="#i-list"/></svg>Parallel</button></div>
+      <div class="bottom-space"></div>
+    </section>
+
+    <!-- ================= WORKFLOW ================= -->
+    <section class="pane" id="pane-workflow">
+      <div class="subtabs" id="wf-subtabs">
+        <button data-sub="templates" class="active"><svg><use href="#i-book"/></svg>Templates</button>
+        <button data-sub="workflows"><svg><use href="#i-flow"/></svg>Workflows</button>
+        <button data-sub="mine"><svg><use href="#i-copy"/></svg>Mẫu của tôi</button>
+      </div>
+      <div class="wf-toolbar">
+        <input id="wf-search" class="search grow" type="search" placeholder="Tìm workflow / template…">
+        <select id="wf-cat" class="pill-select"><option value="">Tất cả</option></select>
+        <button class="btn-create" id="wf-new"><svg><use href="#i-plus"/></svg>Tạo</button>
+      </div>
+      <div class="wf-run card" id="wf-run" hidden></div>
+      <div id="wf-templates" class="tpl-grid"></div>
+      <div id="wf-list" class="lib-list" hidden></div>
+      <div id="wf-mine" class="tpl-grid" hidden></div>
+      <p class="empty" id="wf-empty" hidden></p>
+    </section>
+
+    <!-- ================= PROMPTS ================= -->
+    <section class="pane" id="pane-prompts">
+      <div class="card">
+        <input id="lib-title" type="text" placeholder="Tiêu đề (tuỳ chọn)">
+        <textarea id="lib-text" rows="4" placeholder="Nội dung prompt. Có thể dùng biến {a|b|c}."></textarea>
+        <div class="btn-row">
+          <button class="btn primary" id="lib-add"><svg><use href="#i-plus"/></svg>Lưu prompt</button>
+          <button class="btn" id="lib-export" title="Xuất thư viện ra JSON"><svg><use href="#i-download"/></svg>Xuất</button>
+          <button class="btn" id="lib-import-btn" title="Nhập thư viện từ JSON"><svg><use href="#i-upload"/></svg>Nhập</button>
+          <input type="file" id="lib-import" accept=".json,application/json" hidden>
+        </div>
+      </div>
+      <input id="lib-search" class="search" type="search" placeholder="Tìm prompt…">
+      <div id="lib-list" class="lib-list"></div>
+    </section>
+
+    <!-- ================= TASKS ================= -->
+    <section class="pane" id="pane-queue">
+      <div class="stats" id="task-stats"></div>
+      <div class="progress"><div id="task-progress"></div></div>
+      <div class="btn-row">
+        <button class="btn primary" id="run-start"><svg><use href="#i-play"/></svg>Chạy</button>
+        <button class="btn" id="run-pause" disabled><svg><use href="#i-pause"/></svg>Tạm dừng</button>
+        <button class="btn danger" id="run-stop" disabled><svg><use href="#i-stop"/></svg>Dừng</button>
+      </div>
+      <div class="banner" id="run-message" hidden></div>
+      <div class="btn-row subtle">
+        <button class="link" id="retry-failed"><svg><use href="#i-retry"/></svg>Thử lại task lỗi</button>
+        <button class="link" id="clear-done"><svg><use href="#i-trash"/></svg>Xoá task xong</button>
+        <button class="link" id="clear-all"><svg><use href="#i-trash"/></svg>Xoá tất cả</button>
+      </div>
+      <ol id="task-list" class="task-list"></ol>
+      <p class="empty" id="task-empty">Chưa có task. Soạn prompt ở tab Gen rồi bấm Generate hoặc nút +.</p>
+    </section>
+
+    <!-- ================= TASKS (task đã lưu) ================= -->
+    <section class="pane" id="pane-tasks">
+      <div class="wf-toolbar">
+        <input id="st-search" class="search grow" type="search" placeholder="Tìm task…">
+        <select id="st-filter" class="pill-select"><option value="">Tất cả</option><option value="flow">Flow</option><option value="chatgpt">ChatGPT</option><option value="gemini">Gemini</option><option value="grok">Grok</option></select>
+      </div>
+      <div class="wf-toolbar">
+        <button class="chip parallel" id="st-parallel" title="Chạy song song tối đa 3 task Flow"><svg><use href="#i-list"/></svg>Parallel</button>
+        <span class="spacer"></span>
+        <button class="chip" id="st-runall" title="Chạy các task đang bật (hoặc các task đã tích chọn)"><svg><use href="#i-play"/></svg>Chạy tất cả</button>
+        <button class="btn-create" id="st-add" title="Lưu cấu hình Gen hiện tại thành task"><svg><use href="#i-plus"/></svg>Thêm</button>
+      </div>
+      <div id="st-list"></div>
+      <p class="empty" id="st-empty">Chưa có task. Soạn prompt + cài đặt ở tab Gen rồi bấm nút + (Lưu thành task) hoặc "Thêm" ở đây.</p>
+    </section>
+
+    <!-- ================= TOOLS ================= -->
+    <section class="pane" id="pane-tools">
+      <div class="tool-grid">
+        <button class="tool" data-tool="angles"><span class="ti" style="background:rgba(168,85,247,.18);color:#c084fc"><svg><use href="#i-orbit"/></svg></span><b>Angles</b><small>Tạo chủ thể ở nhiều góc máy</small></button>
+        <button class="tool" data-tool="effects"><span class="ti" style="background:rgba(20,184,166,.18);color:#2dd4bf"><svg><use href="#i-sun"/></svg></span><b>Effects</b><small>Áp hiệu ứng màu, ánh sáng, thời tiết, nghệ thuật</small></button>
+        <button class="tool" data-tool="assistant"><span class="ti" style="background:rgba(198,244,50,.15);color:var(--accent)"><svg><use href="#i-wand"/></svg></span><b>Trợ lý prompt</b><small>ChatGPT/Gemini/Grok viết prompt hàng loạt</small></button>
+        <button class="tool" data-tool="workflow"><span class="ti" style="background:rgba(59,130,246,.18);color:#60a5fa"><svg><use href="#i-flow"/></svg></span><b>Workflow</b><small>Quy trình kéo thả nhiều bước</small></button>
+      </div>
+    </section>
+
+    <!-- ================= HISTORY ================= -->
+    <section class="pane" id="pane-history">
+      <div class="row-head">
+        <input id="hist-search" class="search grow" type="search" placeholder="Tìm trong lịch sử…">
+        <button class="link" id="hist-clear"><svg><use href="#i-trash"/></svg>Xoá</button>
+      </div>
+      <div id="hist-list" class="hist-grid"></div>
+      <p class="empty" id="hist-empty">Chưa có kết quả nào.</p>
+    </section>
+
+    <!-- ================= LOGS ================= -->
+    <section class="pane" id="pane-logs">
+      <div class="row-head">
+        <div class="row-title"><svg><use href="#i-term"/></svg>Nhật ký</div>
+        <button class="link" id="log-clear"><svg><use href="#i-trash"/></svg>Xoá</button>
+      </div>
+      <div id="log-list" class="log-list"></div>
+    </section>
+
+    <!-- ================= SETTINGS ================= -->
+    <section class="pane" id="pane-settings">
+      <div class="row-head">
+        <button class="link" id="settings-back"><svg><use href="#i-back"/></svg>Quay lại</button>
+        <div class="row-title">Cài đặt</div>
+        <span class="spacer"></span><button class="chip" id="open-full-settings"><svg><use href="#i-gear"/></svg>Cài đặt đầy đủ</button>
+      </div>
+
+      <h3>Chạy hàng đợi</h3>
+      <div class="grid2">
+        <label>Số task chạy cùng lúc <input type="number" data-setting="concurrency" min="1" max="5"></label>
+        <label>Số lần thử lại <input type="number" data-setting="retries" min="0" max="10"></label>
+        <label>Nghỉ tối thiểu (giây) <input type="number" data-setting="delayMin" min="0" max="3600"></label>
+        <label>Nghỉ tối đa (giây) <input type="number" data-setting="delayMax" min="0" max="3600"></label>
+        <label>Timeout mỗi task (phút) <input type="number" data-setting="timeoutMin" min="1" max="60"></label>
+      </div>
+      <label class="switch line"><input type="checkbox" data-setting="stopOnError"><span></span>Dừng hàng đợi khi task thất bại</label>
+      <label class="switch line"><input type="checkbox" data-setting="keepRefs"><span></span>Giữ ảnh tham chiếu đang có trên Flow giữa các task</label>
+      <label class="switch line"><input type="checkbox" data-setting="notify"><span></span>Thông báo khi xong / cần xử lý</label>
+
+      <h3>Tải xuống</h3>
+      <label class="stack">Thư mục (trong Downloads) <input type="text" data-setting="folder"></label>
+      <label class="stack">Mẫu tên file <input type="text" data-setting="pattern"></label>
+      <p class="hint">Biến: {date} {time} {index} {prompt} {n} {type} {model}. Dùng "/" để tạo thư mục con.</p>
+      <div class="grid2">
+        <label>Ảnh Flow tải về
+          <select data-setting="dlImageRes">
+            <option value="original">Bản gốc (nhanh)</option>
+            <option value="2k">2K (upscale qua Flow)</option>
+            <option value="4k">4K (upscale qua Flow)</option>
+          </select>
+        </label>
+        <label>Video Flow tải về
+          <select data-setting="dlVideoRes">
+            <option value="original">Bản gốc 720p (nhanh)</option>
+            <option value="1080p">1080p (upscale qua Flow)</option>
+            <option value="4k">4K (upscale qua Flow)</option>
+          </select>
+        </label>
+      </div>
+      <p class="hint">Bản upscale được tải qua menu Download của Flow (có thể tốn thời gian/credit). Nếu không được, extension tự tải bản gốc.</p>
+
+      <h3>Chat AI</h3>
+      <label class="switch line"><input type="checkbox" data-setting="chatNewChat"><span></span>Mặc định mở cuộc trò chuyện mới cho mỗi prompt</label>
+
+      <h3>Hiệu chỉnh giao diện Flow</h3>
+      <p class="hint">Nếu trang đổi giao diện và extension không tìm thấy nút, bấm "Chẩn đoán" rồi gửi file cho người hỗ trợ, hoặc tự thêm CSS selector (JSON). Flow:
+        <code>editor</code>, <code>submit</code>, <code>settings</code>, <code>settingsPanel</code>, <code>modelPicker</code>, <code>addButton</code>.
+        Chat: <code>{"chatgpt": {"composer": [], "send": [], "stop": [], "response": []}}</code> (tương tự <code>gemini</code>, <code>grok</code>).</p>
+      <textarea data-setting="selectors" rows="4" spellcheck="false" placeholder='{"submit": ["button[aria-label=&quot;Create&quot;]"]}'></textarea>
+      <div class="btn-row">
+        <select id="diag-provider" class="pill-select">
+          <option value="flow">Flow</option><option value="chatgpt">ChatGPT</option><option value="gemini">Gemini</option><option value="grok">Grok</option>
+        </select>
+        <button class="btn" id="btn-diagnose"><svg><use href="#i-download"/></svg>Chẩn đoán (xuất file)</button>
+        <button class="btn" id="btn-sync2"><svg><use href="#i-sync"/></svg>Đồng bộ model</button>
+      </div>
+      <p class="hint" id="flow-info"></p>
+    </section>
+  </main>
+
+  <footer class="bottombar" id="bottombar">
+    <button class="round" id="btn-quick-settings" title="Cài đặt chạy"><svg><use href="#i-sliders"/></svg></button>
+    <button class="round lime" id="btn-add" title="Lưu cấu hình hiện tại thành task (tab Tasks)"><svg><use href="#i-plus"/></svg></button>
+    <button class="generate" id="btn-generate"><svg><use href="#i-spark"/></svg><span>Generate</span></button>
+  </footer>
+
+  <dialog id="lib-picker">
+    <div class="dlg-head"><b>Chèn prompt</b><button class="icon-btn" data-close><svg><use href="#i-x"/></svg></button></div>
+    <input id="pick-search" class="search" type="search" placeholder="Tìm…">
+    <div id="pick-list" class="lib-list"></div>
+  </dialog>
+
+
+  <div class="toast" id="toast" hidden></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

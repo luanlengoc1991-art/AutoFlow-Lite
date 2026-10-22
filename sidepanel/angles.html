@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Angles · AutoFlow</title>
+  <link rel="stylesheet" href="tools.css">
+</head>
+<body>
+  <header class="top">
+    <h1><span class="logo">✦</span>Angles <span class="muted" style="font-weight:400;font-size:13px">Tạo chủ thể ở nhiều góc máy khác nhau</span></h1>
+    <span class="spacer"></span>
+    <span class="muted" id="queue-info"></span>
+  </header>
+  <div class="layout">
+    <section class="left">
+      <div>
+        <h3>1. Ảnh chủ thể</h3>
+        <div class="zone" id="zone"></div>
+        <input type="file" id="file" accept="image/*" hidden>
+      </div>
+      <div>
+        <h3>2. Góc máy</h3>
+        <div class="orbit" id="orbit">
+          <div class="subject">Chủ thể</div>
+          <span class="front">▼ mặt trước</span>
+          <div class="cam" id="cam" title="Kéo để xoay góc máy">◉</div>
+        </div>
+        <div class="field"><label>Xoay quanh <span id="rot-val">0°</span></label><input type="range" id="rot" min="-180" max="180" step="15" value="0"></div>
+        <div class="field"><label>Độ cao camera <span id="tilt-val">ngang tầm mắt</span></label><input type="range" id="tilt" min="-60" max="90" step="15" value="0"></div>
+        <div class="field"><label>Khoảng cách <span id="zoom-val">trung cảnh</span></label><input type="range" id="zoom" min="-2" max="2" step="1" value="0"></div>
+        <div class="pills" id="presets"></div>
+      </div>
+      <div class="row"><button class="btn" id="add-angle">+ Thêm góc này vào danh sách</button><span class="spacer"></span><span class="muted" id="list-count"></span></div>
+      <div class="angle-list" id="angle-list"></div>
+      <div class="field"><label>Prompt (góc hiện tại)</label><textarea id="prompt" readonly></textarea></div>
+      <div class="row">
+        <div class="field" style="flex:2"><span class="lbl">Model</span><select id="model"></select></div>
+        <div class="field" style="flex:1"><span class="lbl">Tỉ lệ</span><select id="ratio"><option value="">Giữ</option><option>1:1</option><option>16:9</option><option>9:16</option><option>4:3</option><option>3:4</option></select></div>
+      </div>
+      <button class="go" id="go">✦ Tạo góc</button>
+      <p class="hint">Mỗi góc trong danh sách tạo 1 lượt (danh sách trống thì dùng góc hiện tại). Ảnh chủ thể được gửi làm tham chiếu để giữ đúng nhân vật/sản phẩm.</p>
+    </section>
+    <section class="right">
+      <div class="row" style="margin-bottom:10px"><h3 style="margin:0">Kết quả</h3><span class="spacer"></span><button class="btn" id="clear">Xoá danh sách</button></div>
+      <div class="res-grid" id="results"></div>
+      <p class="empty" id="empty">Chọn ảnh chủ thể, chỉnh góc máy rồi bấm "Tạo góc".</p>
+    </section>
+  </div>
+  <div class="toast" id="toast" hidden></div>
+  <script type="module" src="angles.js"></script>
+</body>
+</html>

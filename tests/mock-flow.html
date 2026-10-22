@@ -1,0 +1,270 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Mock Flow</title>
+<style>
+  body { margin: 0; font: 14px system-ui; background: #111; color: #eee; }
+  i { font-style: normal; font-family: monospace; font-size: 11px; }
+  #gallery { display: grid; grid-template-columns: repeat(4, 200px); gap: 12px; padding: 16px; }
+  .tile { width: 200px; height: 150px; background: #222; position: relative; border-radius: 8px; overflow: hidden; }
+  .tile img, .tile video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .tile .pct { position: absolute; inset: 0; display: grid; place-items: center; }
+  .tile .prompt { position: absolute; bottom: 0; left: 0; right: 0; font-size: 10px; background: #0008; }
+  #composer { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); width: 700px; background: #1c1c1c; border: 1px solid #333; border-radius: 16px; padding: 10px; }
+  #refs { display: flex; gap: 6px; }
+  #refs .chip { position: relative; } #refs img { width: 40px; height: 40px; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+  [data-slate-editor] { min-height: 40px; outline: none; }
+  button { background: #333; color: #eee; border: 0; padding: 6px 10px; border-radius: 8px; }
+  button[aria-selected="true"], button[data-state="active"] { background: #c6f432; color: #111; }
+  .pop { position: fixed; bottom: 120px; left: 50%; transform: translateX(-50%); width: 420px; background: #262626; border: 1px solid #444; padding: 10px; border-radius: 12px; }
+  .pop [role=tablist] { display: flex; gap: 4px; margin: 6px 0; flex-wrap: wrap; }
+  .menu { position: fixed; bottom: 300px; left: 50%; width: 220px; background: #333; padding: 6px; border-radius: 8px; }
+  .menu [role=menuitem] { display: block; width: 100%; text-align: left; margin: 2px 0; }
+  [data-sonner-toast] { position: fixed; top: 10px; right: 10px; background: #522; padding: 10px; }
+</style></head>
+<body>
+<div id="gallery"></div>
+<div id="composer">
+  <div id="refs"></div>
+  <div id="editor-root"></div>
+  <div class="row">
+    <button id="add"><i>add_2</i></button>
+    <span style="flex:1"></span>
+    <button id="settings" aria-haspopup="dialog"><i>crop_16_9</i>Veo 3.1 - Fast<span> </span>x2</button><button id="submit"><i>arrow_forward</i></button>
+  </div>
+</div>
+<script type="module">
+import React from 'https://esm.sh/react@18.3.1';
+import { createRoot } from 'https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1';
+import { createEditor, Editor, Transforms, Node } from 'https://esm.sh/slate@0.110.2';
+import { Slate, Editable, withReact } from 'https://esm.sh/slate-react@0.110.3?deps=react@18.3.1,react-dom@18.3.1,slate@0.110.2';
+
+const state = window.mock = { mode: 'VIDEO', vmode: 'VIDEO_FRAMES', ratio: 'LANDSCAPE', qty: 2, model: 'Veo 3.1 - Fast', duration: '8s', submits: [], refs: 0 };
+const MODELS = { IMAGE: ['🍌 Nano Banana Pro', 'Nano Banana 2', 'Imagen 4'], VIDEO: ['Veo 3.1 - Fast', 'Veo 3.1 - Quality'] };
+const editor = withReact(createEditor());
+window.__mockEditor = editor;
+window.mockText = () => editor.children.map((n) => Node.string(n)).join('\n');
+function App() {
+  return React.createElement(Slate, { editor, initialValue: [{ type: 'paragraph', children: [{ text: '' }] }] },
+    React.createElement(Editable, { placeholder: 'What do you want to create?' }));
+}
+createRoot(document.getElementById('editor-root')).render(React.createElement(App));
+
+const $ = (s) => document.querySelector(s);
+function renderSettingsBtn() {
+  const icon = { LANDSCAPE: 'crop_16_9', PORTRAIT: 'crop_9_16', SQUARE: 'crop_square', LANDSCAPE_4_3: 'crop_landscape', PORTRAIT_3_4: 'crop_portrait' }[state.ratio];
+  $('#settings').innerHTML = `<i>${icon}</i>${state.model.replace(/^🍌 /, '')}<span> </span>x${state.qty}`;
+}
+renderSettingsBtn();
+
+// ---- Popover cài đặt kiểu Radix ----
+let pop = null, menu = null;
+function tab(group, value, label, iconName) {
+  const sel = state[group] === value;
+  return `<button role="tab" id="radix-:r${group}:-trigger-${value}" aria-controls="radix-:r${group}:-content-${value}" aria-selected="${sel}" data-state="${sel ? 'active' : 'inactive'}" data-g="${group}" data-v="${value}">${iconName ? `<i>${iconName}</i>` : ''}${label}</button>`;
+}
+function renderPop() {
+  if (!pop) return;
+  const ratios = state.mode === 'IMAGE' ? [['LANDSCAPE', 'crop_16_9'], ['PORTRAIT', 'crop_9_16'], ['SQUARE', 'crop_square'], ['LANDSCAPE_4_3', 'crop_landscape'], ['PORTRAIT_3_4', 'crop_portrait']] : [['LANDSCAPE', 'crop_16_9'], ['PORTRAIT', 'crop_9_16']];
+  pop.innerHTML = `<div role="dialog">
+    <div role="tablist">${tab('mode', 'IMAGE', 'Image', 'image')}${tab('mode', 'VIDEO', 'Video', 'videocam')}</div>
+    ${state.mode === 'VIDEO' ? `<div role="tablist">${tab('vmode', 'VIDEO_FRAMES', 'Frames')}${tab('vmode', 'VIDEO_REFERENCES', 'Ingredients')}</div>` : ''}
+    <div role="tablist">${ratios.map(([v, ic]) => tab('ratio', v, '', ic)).join('')}</div>
+    <div role="tablist">${[1, 2, 3, 4].map((n) => tab('qty', n, `x${n}`)).join('')}</div>
+    ${state.mode === 'VIDEO' ? `<div role="tablist">${['4s', '6s', '8s'].map((d) => tab('duration', d, d)).join('')}</div>` : ''}
+    <button id="model-btn" aria-haspopup="menu">${state.model}<i>arrow_drop_down</i></button>
+  </div>`;
+}
+function openPop() {
+  pop = document.createElement('div');
+  pop.setAttribute('data-radix-popper-content-wrapper', '');
+  pop.className = 'pop';
+  document.body.appendChild(pop);
+  renderPop();
+}
+function closeAll() { menu?.remove(); menu = null; pop?.remove(); pop = null; }
+// Radix mở trên pointerdown
+$('#settings').addEventListener('pointerdown', () => { pop ? closeAll() : openPop(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (menu) { menu.remove(); menu = null; } else closeAll();
+});
+document.addEventListener('pointerdown', (e) => {
+  const t = e.target.closest('[data-g]');
+  if (t && pop?.contains(t)) {
+    const g = t.dataset.g;
+    state[g] = g === 'qty' ? +t.dataset.v : t.dataset.v;
+    if (g === 'mode') state.model = MODELS[state.mode][0];
+    renderPop(); renderSettingsBtn();
+  }
+  if (e.target.closest('#model-btn')) {
+    menu = document.createElement('div');
+    menu.setAttribute('role', 'menu');
+    menu.className = 'menu';
+    menu.innerHTML = MODELS[state.mode].map((m) => `<div role="menuitem" tabindex="-1">${m}</div>`).join('');
+    document.body.appendChild(menu);
+  }
+});
+document.addEventListener('click', (e) => {
+  const item = e.target.closest('[role=menuitem]');
+  if (item && menu) { state.model = item.textContent; menu.remove(); menu = null; renderPop(); renderSettingsBtn(); }
+});
+
+// ---- Nút add_2 mở menu thành phần: Upload / Characters / Voices ----
+state.chars = [];
+state.voices = [];
+const CHARACTERS = ['Mèo Cam', 'Robot Bạc', 'Cô Gái Áo Dài', ...Array.from({ length: 14 }, (_, i) => `Nhân vật ${i + 1}`)];
+const VOICES = ['Giọng Nam Trầm', 'Giọng Nữ Trẻ'];
+let addMenu = null;
+function addChip(label, onRemove, img) {
+  const chip = document.createElement('div');
+  chip.className = 'chip';
+  chip.innerHTML = `${img ? `<img src="${img}">` : `<span>${label}</span>`}<button><i>close</i></button>`;
+  chip.querySelector('button').addEventListener('click', () => { chip.remove(); onRemove(); });
+  $('#refs').appendChild(chip);
+}
+function renderAddMenu(tabName) {
+  addMenu.innerHTML = `<div role="dialog">
+    <div role="tablist">
+      <button role="tab" aria-selected="${tabName === 'upload'}" data-tab="upload"><i>upload</i>Upload</button>
+      <button role="tab" aria-selected="${tabName === 'chars'}" data-tab="chars"><i>person</i>Characters</button>
+      <button role="tab" aria-selected="${tabName === 'voices'}" data-tab="voices"><i>record_voice_over</i>Voices</button>
+    </div>
+    ${tabName === 'upload' ? '<div role="menuitem" id="upload-item" tabindex="-1"><i>upload</i>Upload image</div>' : ''}
+    ${tabName !== 'upload' ? `<div role="listbox" style="max-height:90px;overflow:auto">${(tabName === 'chars' ? CHARACTERS : VOICES).map((n) => `<div role="option" data-name="${n}" style="padding:4px">${n}</div>`).join('')}</div>` : ''}
+  </div>`;
+}
+$('#add').addEventListener('click', () => {
+  if (addMenu) { addMenu.remove(); addMenu = null; return; }
+  addMenu = document.createElement('div');
+  addMenu.setAttribute('data-radix-popper-content-wrapper', '');
+  addMenu.className = 'pop';
+  document.body.appendChild(addMenu);
+  renderAddMenu('upload');
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && addMenu) { addMenu.remove(); addMenu = null; } });
+document.addEventListener('pointerdown', (e) => {
+  const tab = e.target.closest('[data-tab]');
+  if (tab && addMenu?.contains(tab)) renderAddMenu(tab.dataset.tab);
+});
+document.addEventListener('click', (e) => {
+  if (!addMenu) return;
+  if (e.target.closest('#upload-item')) {
+    // Như Flow: tạo input ẩn rồi gọi input.click()
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.multiple = true;
+    input.addEventListener('change', () => {
+      for (const f of input.files) { addChip('', () => state.refs--, URL.createObjectURL(f)); state.refs++; }
+    });
+    addMenu.remove(); addMenu = null;
+    input.click();
+    return;
+  }
+  const opt = e.target.closest('[role=option]');
+  if (opt && addMenu.contains(opt)) {
+    const name = opt.dataset.name;
+    const list = CHARACTERS.includes(name) ? state.chars : state.voices;
+    list.push(name);
+    addChip(name, () => list.splice(list.indexOf(name), 1));
+    addMenu.remove(); addMenu = null;
+  }
+});
+
+// ---- Menu chuột phải trên tile: Download → độ phân giải ----
+state.downloads = [];
+let ctxMenu = null, subMenu = null;
+function closeCtx() { subMenu?.remove(); subMenu = null; ctxMenu?.remove(); ctxMenu = null; }
+document.addEventListener('contextmenu', (e) => {
+  const tile = e.target.closest('.tile');
+  const img = tile?.querySelector('img');
+  if (!img) return;
+  e.preventDefault();
+  closeCtx();
+  const isVideo = tile.dataset.kind === 'video';
+  ctxMenu = document.createElement('div');
+  ctxMenu.setAttribute('role', 'menu');
+  ctxMenu.className = 'menu';
+  ctxMenu.style.left = `${e.clientX}px`;
+  ctxMenu.style.top = `${e.clientY}px`;
+  ctxMenu.style.bottom = 'auto';
+  ctxMenu.innerHTML = `<div role="menuitem" tabindex="-1"><i>favorite</i>Favorite</div><div role="menuitem" tabindex="-1" aria-haspopup="menu" id="dl-item"><i>download</i>Download</div>`;
+  document.body.appendChild(ctxMenu);
+  const openSub = () => {
+    if (subMenu) return;
+    subMenu = document.createElement('div');
+    subMenu.setAttribute('role', 'menu');
+    subMenu.className = 'menu';
+    subMenu.style.left = `${e.clientX + 230}px`;
+    subMenu.style.top = `${e.clientY}px`;
+    subMenu.style.bottom = 'auto';
+    const opts = isVideo ? ['Original size (720p)', 'Upscaled (1080p)', 'Upscaled (4K)'] : ['Original size (1K)', 'Upscaled (2K)', 'Upscaled (4K)'];
+    subMenu.innerHTML = opts.map((o) => `<div role="menuitem" tabindex="-1" data-res="${o}">${o}</div>`).join('');
+    document.body.appendChild(subMenu);
+    subMenu.addEventListener('click', (ev) => {
+      const res = ev.target.closest('[data-res]')?.dataset.res;
+      if (!res) return;
+      state.downloads.push({ res, src: img.src });
+      closeCtx();
+      // Giả lập Flow upscale rồi tự tải file
+      setTimeout(async () => {
+        const blob = await (await fetch(img.src)).blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `flow_${res.replace(/\W+/g, '_')}.png`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }, 1200);
+    });
+  };
+  const dl = ctxMenu.querySelector('#dl-item');
+  dl.addEventListener('pointerenter', openSub);
+  dl.addEventListener('keydown', (ev) => { if (ev.key === 'ArrowRight') openSub(); });
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeCtx(); });
+
+// ---- Gửi prompt → tạo tile ----
+let seq = 0;
+$('#submit').addEventListener('click', () => {
+  const text = window.mockText().trim();
+  if (!text) return;
+  state.submits.push({ text, mode: state.mode, vmode: state.vmode, ratio: state.ratio, qty: state.qty, model: state.model, duration: state.duration, refs: state.refs, chars: [...state.chars], voices: [...state.voices] });
+  Transforms.delete(editor, { at: { anchor: Editor.start(editor, []), focus: Editor.end(editor, []) } });
+  if (/QUOTA/.test(text)) {
+    const t = document.createElement('div');
+    t.setAttribute('data-sonner-toast', '');
+    t.textContent = "You're out of credits. Upgrade to continue.";
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 6000);
+    return;
+  }
+  for (let k = 0; k < state.qty; k++) {
+    const tile = document.createElement('div');
+    tile.className = 'tile';
+    tile.innerHTML = `<div class="pct">0%</div><div class="prompt">${text}</div>`;
+    $('#gallery').prepend(tile);
+    let p = 0;
+    const isVideo = state.mode === 'VIDEO';
+    tile.dataset.kind = isVideo ? 'video' : 'image';
+    const timer = setInterval(() => {
+      p += 25;
+      if (p < 100) { tile.querySelector('.pct').textContent = `${p}%`; return; }
+      clearInterval(timer);
+      const id = `m${Date.now()}${++seq}`;
+      if (/FAIL/.test(text)) {
+        tile.innerHTML = `<div class="pct"><div><i>warning</i><div>This prompt might violate our policies.</div><button><i>refresh</i>Retry</button></div></div>`;
+      } else if (isVideo) {
+        // Video: chỉ có poster, <video> chỉ xuất hiện khi rê chuột.
+        tile.innerHTML = `<img src="/asb/${id}=w400" alt=""><div class="prompt">${text}</div>`;
+        tile.addEventListener('mouseenter', () => {
+          if (!tile.querySelector('video')) tile.insertAdjacentHTML('afterbegin', `<video src="/asb/${id}/video" muted></video>`);
+        });
+      } else {
+        tile.innerHTML = `<img src="/asb/${id}=w400" alt=""><div class="prompt">${text}</div>`;
+      }
+    }, 500);
+  }
+});
+</script>
+</body></html>

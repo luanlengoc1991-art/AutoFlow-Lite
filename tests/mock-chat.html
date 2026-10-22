@@ -1,0 +1,100 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Mock Chat</title>
+<style>
+  body { margin: 0; font: 14px system-ui; background: #212121; color: #eee; }
+  #thread { padding: 16px 16px 160px; display: flex; flex-direction: column; gap: 12px; }
+  [data-message-author-role="user"] { align-self: flex-end; background: #333; padding: 8px 12px; border-radius: 12px; }
+  [data-message-author-role="assistant"] { padding: 8px 0; }
+  .markdown { white-space: pre-wrap; }
+  [data-message-author-role="assistant"] img { width: 300px; height: 225px; display: block; }
+  form { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); width: 640px; background: #2f2f2f; border-radius: 20px; padding: 10px; }
+  #previews img { width: 48px; height: 48px; }
+  #prompt-textarea { min-height: 24px; outline: none; white-space: pre-wrap; }
+  button { background: #fff; color: #000; border: 0; border-radius: 999px; padding: 6px 12px; }
+  button:disabled { opacity: .3; }
+</style></head>
+<body>
+<div id="thread"></div>
+<form onsubmit="return false">
+  <div id="previews"></div>
+  <input type="file" multiple accept="image/*" style="display:none" id="upload">
+  <div id="prompt-textarea" contenteditable="true" class="ProseMirror"></div>
+  <div style="display:flex;justify-content:flex-end;margin-top:6px"><button data-testid="send-button" id="send" disabled aria-label="Send prompt">↑</button></div>
+</form>
+<script>
+  // Giả lập ChatGPT: composer contenteditable, nút gửi/dừng, câu trả lời stream từng chữ, ảnh khi được yêu cầu vẽ.
+  window.chatMock = { sent: [] };
+  const box = document.getElementById('prompt-textarea');
+  const send = document.getElementById('send');
+  const thread = document.getElementById('thread');
+  const upload = document.getElementById('upload');
+  let attachments = 0;
+  const refresh = () => { send.disabled = !box.innerText.trim(); };
+  box.addEventListener('input', refresh);
+  upload.addEventListener('change', () => {
+    for (const f of upload.files) {
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(f);
+      document.getElementById('previews').appendChild(img);
+      attachments++;
+    }
+  });
+  function reply(text) {
+    const user = document.createElement('div');
+    user.setAttribute('data-message-author-role', 'user');
+    user.textContent = text;
+    thread.appendChild(user);
+    const bot = document.createElement('div');
+    bot.setAttribute('data-message-author-role', 'assistant');
+    bot.innerHTML = '<div class="markdown"></div>';
+    thread.appendChild(bot);
+    const md = bot.querySelector('.markdown');
+    const stop = document.createElement('button');
+    stop.setAttribute('data-testid', 'stop-button');
+    stop.textContent = '■';
+    send.replaceWith(stop);
+    let answer;
+    const m = /Write (\d+) distinct/.exec(text);
+    const json = /Return ONLY a JSON array/.test(text);
+    const nJson = +(/exactly (\d+) scenes/.exec(text)?.[1] || 3);
+    if (json) answer = JSON.stringify(Array.from({ length: nJson }, (_, i) => ({ title: `Cảnh ${i + 1}`, prompt: `Scene ${i + 1}: a cinematic shot of the story`, voiceover: `Lời thoại ${i + 1}` })));
+    else if (/storyboard/i.test(text)) {
+      const scenes = +(/Số cảnh:\s*(\d+)/.exec(text)?.[1] || 2);
+      answer = Array.from({ length: scenes }, (_, i) => { const k = String(i + 1).padStart(2, '0'); return `[image_prompt_${k}] Caveman scene ${k} still image\n[video_prompt_${k}] Caveman scene ${k} slow camera pan`; }).join('\n');
+    }
+    else if (m) answer = Array.from({ length: +m[1] }, (_, i) => `${i + 1}. A cinematic shot number ${i + 1} of the idea`).join('\n');
+    else if (/^(draw|generate an image)/i.test(text)) answer = 'Creating image';
+    else if (/refuse/i.test(text)) answer = "I can't create that image because it may violate our content policy.";
+    else answer = `Here is my answer about: ${text}`;
+    // Stream theo 5 cụm (tab nền bị giảm tần suất timer nên không stream từng chữ).
+    const words = answer.split(/(\s+)/);
+    const chunk = Math.ceil(words.length / 5);
+    let i = 0;
+    const timer = setInterval(() => {
+      md.textContent += words.slice(i, i + chunk).join('');
+      i += chunk;
+      if (i < words.length) return;
+      clearInterval(timer);
+      const done = () => { stop.replaceWith(send); box.innerHTML = ''; refresh(); };
+      if (answer === 'Creating image') {
+        setTimeout(() => {
+          md.textContent = 'Image created';
+          const img = document.createElement('img');
+          img.src = `/asb/chatimg${Date.now()}=w400`;
+          bot.appendChild(img);
+          done();
+        }, 1500);
+      } else done();
+    }, 60);
+  }
+  send.addEventListener('click', () => {
+    const text = box.innerText.trim();
+    if (!text) return;
+    window.chatMock.sent.push({ text, attachments });
+    box.innerHTML = '';
+    attachments = 0;
+    document.getElementById('previews').innerHTML = '';
+    reply(text);
+  });
+</script>
+</body></html>

@@ -1,0 +1,14 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [{ "header": "cross-origin-resource-policy", "operation": "remove" }]
+    },
+    "condition": {
+      "urlFilter": "||flow.google.com/",
+      "resourceTypes": ["image", "media", "xmlhttprequest"]
+    }
+  }
+]

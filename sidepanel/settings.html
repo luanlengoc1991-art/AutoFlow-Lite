@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cài đặt · AutoFlow</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <header class="head">
+    <div class="logo">✦</div>
+    <div><h1>Cài đặt</h1><span class="muted" id="version"></span></div>
+    <span class="spacer"></span>
+    <button class="icon-btn" id="close" title="Đóng">✕</button>
+  </header>
+  <nav class="tabs" id="tabs">
+    <button data-tab="general" class="active">⚙ Cài đặt</button>
+    <button data-tab="accounts">👤 Tài khoản AI</button>
+    <button data-tab="agent">🤖 AI Agent / Bot</button>
+    <button data-tab="storage">🗄 Bộ nhớ</button>
+    <button data-tab="about">ⓘ Giới thiệu</button>
+  </nav>
+
+  <main>
+    <!-- ===== CÀI ĐẶT ===== -->
+    <section class="pane active" id="pane-general">
+      <h2>👤 Tài khoản AI</h2>
+      <div class="acc-strip" id="acc-strip"></div>
+
+      <h2>⬇ Tự động tải về</h2>
+      <label class="check"><input type="checkbox" data-s="autoDownload"> Tự động tải ảnh/video sau khi tạo xong</label>
+      <div class="grid2">
+        <label>Tên thư mục<input type="text" data-s="folder" placeholder="AutoFlow"></label>
+        <label>Tên project<input type="text" data-s="project" placeholder="VD: CuteCats"></label>
+      </div>
+      <label>Mẫu tên file<input type="text" data-s="pattern"></label>
+      <p class="hint">Biến hỗ trợ: [Date], [Time], [Project], [Prompt], [Index], [N], [Type], [Model]. Dùng "/" để tạo thư mục con.</p>
+      <div class="grid2">
+        <label>Độ phân giải ảnh<select data-s="dlImageRes"><option value="original">1K (gốc)</option><option value="2k">2K (upscale)</option><option value="4k">4K (upscale)</option></select></label>
+        <label>Độ phân giải video<select data-s="dlVideoRes"><option value="original">720p (gốc)</option><option value="1080p">1080p (upscale)</option><option value="4k">4K (upscale)</option></select></label>
+      </div>
+      <div class="grid2">
+        <div class="tip"><b>1</b><div><strong>Cài đặt trước khi sử dụng</strong><span>Tắt "Hỏi nơi lưu từng tệp" trong Chrome.</span></div><button class="icon-btn" data-open="chrome://settings/downloads" title="Mở cài đặt tải xuống">↗</button></div>
+        <div class="tip"><b>2</b><div><strong>Tắt extension tải tự động khác</strong><span>Chúng có thể xung đột với việc đổi tên file.</span></div><button class="icon-btn" data-open="chrome://extensions" title="Mở trang extension">↗</button></div>
+      </div>
+
+      <h2>▶ Chạy hàng đợi</h2>
+      <div class="grid3">
+        <label>Task chạy cùng lúc<input type="number" min="1" max="5" data-s="concurrency"></label>
+        <label>Số lần thử lại<input type="number" min="0" max="10" data-s="retries"></label>
+        <label>Timeout (phút)<input type="number" min="1" max="60" data-s="timeoutMin"></label>
+        <label>Nghỉ tối thiểu (giây)<input type="number" min="0" max="3600" data-s="delayMin"></label>
+        <label>Nghỉ tối đa (giây)<input type="number" min="0" max="3600" data-s="delayMax"></label>
+      </div>
+      <p class="hint">Khoảng nghỉ ngẫu nhiên giữa các lượt giúp thao tác giống người dùng thật.</p>
+      <label class="check"><input type="checkbox" data-s="stopOnError"> Dừng hàng đợi khi task thất bại</label>
+      <label class="check"><input type="checkbox" data-s="keepRefs"> Giữ ảnh tham chiếu đang có trên Flow giữa các task</label>
+      <label class="check"><input type="checkbox" data-s="chatNewChat"> Chat AI: mở cuộc trò chuyện mới cho mỗi prompt</label>
+
+      <h2>🔔 Thông báo</h2>
+      <label class="check"><input type="checkbox" data-s="notify"> Thông báo khi hoàn thành (prompt, task, workflow)</label>
+      <label class="check"><input type="checkbox" data-s="sound"> Phát âm thanh thông báo <button class="link" id="test-sound">nghe thử</button></label>
+
+      <h2>🛠 Nâng cao</h2>
+      <p class="hint">Selector tuỳ chỉnh (JSON) khi trang đổi giao diện. Flow: editor, submit, settings, settingsPanel, modelPicker, addButton. Chat: {"chatgpt": {"composer": [], "send": [], "stop": [], "response": []}}.</p>
+      <textarea data-s="selectors" rows="3" spellcheck="false" placeholder='{"submit": ["button[aria-label=&quot;Create&quot;]"]}'></textarea>
+    </section>
+
+    <!-- ===== TÀI KHOẢN AI ===== -->
+    <section class="pane" id="pane-accounts">
+      <div class="banner">
+        <h3>Kết nối tài khoản AI của bạn</h3>
+        <p>AutoFlow điều khiển trực tiếp các trang Google Flow, ChatGPT, Gemini, Grok bằng <b>phiên đăng nhập trên trình duyệt này</b>.
+          Mọi lượt tạo ảnh/video/prompt được tính vào <b>hạn mức gói tài khoản của bạn</b> (Free / Plus / Pro / Ultra…). Không cần API key, không qua server trung gian.</p>
+      </div>
+      <div class="row"><span class="spacer"></span><button class="btn" id="check-all">↻ Kiểm tra tất cả</button></div>
+      <div class="acc-list" id="acc-list"></div>
+    </section>
+
+    <!-- ===== AI AGENT / BOT ===== -->
+    <section class="pane" id="pane-agent">
+      <div class="subtabs" id="agent-sub">
+        <button data-sub="mcp" class="active">🤖 AI / MCP</button>
+        <button data-sub="telegram">✈ Telegram</button>
+      </div>
+      <div id="sub-mcp">
+        <div class="banner hero">
+          <div>
+            <h3>Kết nối AI Agent (MCP)</h3>
+            <ul><li>Claude / Cursor / Codex gọi AutoFlow như một công cụ</li><li>Tạo ảnh, video, dựng & chạy workflow bằng lời</li><li>Token cục bộ, thu hồi được bất cứ lúc nào</li></ul>
+          </div>
+        </div>
+        <label class="check"><input type="checkbox" data-s="mcpEnabled"> Bật cầu nối MCP <span class="pill" id="mcp-status">Tắt</span></label>
+        <div class="grid2">
+          <label>Cổng (localhost)<input type="number" min="1024" max="65535" data-s="mcpPort"></label>
+          <label>Token MCP<div class="row"><input type="text" data-s="mcpToken" readonly><button class="btn" id="mcp-newtoken" title="Tạo token mới (thu hồi token cũ)">↻</button></div></label>
+        </div>
+        <label>Thư mục extension trên máy (để điền cấu hình)<input type="text" data-s="extDir" placeholder="VD: D:\CLAUDE CURSO WEBSITE LUAN\autoflow-lite"></label>
+        <div class="code-head"><b>Claude Desktop / Cursor</b> (mcpServers trong file cấu hình)<button class="link" data-copy="cfg-json">Copy</button></div>
+        <pre id="cfg-json"></pre>
+        <div class="code-head"><b>Claude Code</b><button class="link" data-copy="cfg-cli">Copy</button></div>
+        <pre id="cfg-cli"></pre>
+        <p class="hint">Cầu nối gồm file <code>mcp/autoflow-mcp.mjs</code> (chạy bằng Node.js 18+) và side panel AutoFlow đang mở. Công cụ: autoflow_status, autoflow_generate, autoflow_list_workflows, autoflow_run_workflow, autoflow_create_workflow, autoflow_recent_results.</p>
+        <h2>⬇ Lưu file gen qua MCP</h2>
+        <label class="check"><input type="checkbox" data-s="mcpAutoDownload"> Tự động tải về máy khi AI gen qua MCP</label>
+        <label>Thư mục lưu file<input type="text" data-s="mcpFolder" placeholder="AutoFlow_mcp"></label>
+        <p class="hint">Thư mục con trong thư mục tải xuống chính.</p>
+      </div>
+      <div id="sub-telegram" hidden>
+        <div class="banner">
+          <h3>Điều khiển qua Telegram</h3>
+          <p>Tạo bot với <b>@BotFather</b>, dán token vào đây. Gửi <code>/start</code> cho bot để liên kết chat. Lệnh: <code>/gen prompt</code> (ảnh), <code>/video prompt</code>, <code>/status</code>, <code>/stop</code>, <code>/help</code>. Kết quả được gửi lại vào chat.</p>
+        </div>
+        <label class="check"><input type="checkbox" data-s="tgEnabled"> Bật bot Telegram <span class="pill" id="tg-status">Tắt</span></label>
+        <label>Bot token<input type="password" data-s="tgToken" placeholder="123456:ABC-…" autocomplete="off"></label>
+        <div class="grid2">
+          <label>Chat ID được phép<input type="text" data-s="tgChatId" placeholder="tự điền khi bạn gửi /start"></label>
+          <label class="check" style="margin-top:22px"><input type="checkbox" data-s="tgNotify"> Gửi thông báo + ảnh kết quả</label>
+        </div>
+        <div class="row"><button class="btn" id="tg-test">Gửi tin nhắn thử</button><span class="muted" id="tg-test-res"></span></div>
+      </div>
+    </section>
+
+    <!-- ===== BỘ NHỚ ===== -->
+    <section class="pane" id="pane-storage">
+      <h2>🗄 Dung lượng lưu trữ</h2>
+      <div class="usage"><div class="bar"><i id="usage-bar"></i></div><span id="usage-text"></span></div>
+      <div class="stats" id="storage-stats"></div>
+      <div class="btn-col">
+        <button class="btn" data-clean="queue">Xoá task đã xong trong hàng đợi</button>
+        <button class="btn" data-clean="history">Xoá lịch sử kết quả</button>
+        <button class="btn" data-clean="refs">Dọn ảnh tham chiếu không dùng</button>
+        <button class="btn" id="backup">⬇ Sao lưu dữ liệu (.json)</button>
+        <button class="btn" id="restore-btn">⬆ Khôi phục từ file sao lưu</button>
+        <input type="file" id="restore" accept=".json,application/json" hidden>
+        <button class="btn danger" data-clean="all">Xoá toàn bộ dữ liệu AutoFlow</button>
+      </div>
+    </section>
+
+    <!-- ===== GIỚI THIỆU ===== -->
+    <section class="pane" id="pane-about">
+      <div class="about">
+        <div class="logo big">✦</div>
+        <h3>AutoFlow Lite <span class="muted" id="version2"></span></h3>
+        <p>Tự động hoá Google Flow, ChatGPT, Gemini, Grok: tạo ảnh/video hàng loạt, workflow kéo thả, Effects, Angles, Trợ lý prompt, MCP, Telegram.</p>
+        <p class="muted">Chạy hoàn toàn trên máy bạn, dùng tài khoản của bạn. Dữ liệu lưu trong trình duyệt.</p>
+        <h2>⌨ Phím tắt</h2>
+        <ul class="keys"><li><kbd>Alt</kbd>+<kbd>G</kbd> Chạy / tạm dừng hàng đợi</li><li>Trong trình soạn workflow: <kbd>N</kbd> thêm node · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> chạy · <kbd>Ctrl</kbd>+<kbd>Z</kbd> hoàn tác · <kbd>Del</kbd> xoá · <kbd>F</kbd> vừa màn hình</li></ul>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot"><button class="save" id="save">✓ Lưu tất cả cài đặt</button></footer>
+  <div class="toast" id="toast" hidden></div>
+  <script type="module" src="settings.js"></script>
+</body>
+</html>
