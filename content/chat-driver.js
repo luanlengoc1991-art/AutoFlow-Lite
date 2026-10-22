@@ -15,7 +15,10 @@
       stop: ['[data-testid="stop-button"]', 'button[aria-label*="Stop" i]'],
       response: ['[data-message-author-role="assistant"]'],
       responseText: ['.markdown', '[data-message-author-role="assistant"]'],
-      attach: ['button[aria-label*="Attach" i]', 'button[aria-label*="Add photos" i]', 'button[aria-label*="Upload" i]', '[data-testid="composer-plus-btn"]']
+      attach: ['button[aria-label*="Attach" i]', 'button[aria-label*="Add photos" i]', 'button[aria-label*="Upload" i]', '[data-testid="composer-plus-btn"]'],
+      modelPicker: ['[data-testid="model-switcher-dropdown-button"]', 'button[aria-label*="Model selector" i]', 'button[aria-label*="model" i][aria-haspopup]'],
+      convMenu: ['[data-testid="conversation-options-button"]', 'button[aria-label*="Open conversation options" i]'],
+      deleteConfirm: ['[data-testid="delete-conversation-confirm-button"]']
     },
     gemini: {
       hosts: /(^|\.)gemini\.google\.com$/,
@@ -24,7 +27,10 @@
       stop: ['button.send-button.stop', 'button[aria-label*="Stop" i]', 'button[aria-label*="Dừng"]'],
       response: ['model-response'],
       responseText: ['message-content .markdown', 'message-content', '.model-response-text'],
-      attach: ['button[aria-label*="upload" i]', 'button[aria-label*="tải lên" i]', 'uploader button', 'button[aria-label*="Add files" i]']
+      attach: ['button[aria-label*="upload" i]', 'button[aria-label*="tải lên" i]', 'uploader button', 'button[aria-label*="Add files" i]'],
+      modelPicker: ['[data-test-id="bard-mode-menu-button"]', 'bard-mode-switcher button', 'button[aria-label*="mode picker" i]', 'button[aria-label*="model" i][aria-haspopup]'],
+      convMenu: ['.conversation.selected [data-test-id="actions-menu-button"]', '[data-test-id="conversation-actions-button"]', 'button[aria-label*="conversation actions" i]'],
+      deleteConfirm: ['button[data-test-id="confirm-button"]', 'mat-dialog-actions button.confirm-button']
     },
     grok: {
       hosts: /(^|\.)grok\.com$|(^|\.)x\.com$/,
@@ -33,7 +39,10 @@
       stop: ['button[aria-label*="Stop" i]', 'button[aria-label*="Cancel" i]'],
       response: ['div.message-bubble', '[class*="message-bubble"]', '[data-testid="message"]'],
       responseText: ['.response-content-markdown', '.prose', '[class*="markdown"]'],
-      attach: ['button[aria-label*="Attach" i]', 'button[aria-label*="Upload" i]']
+      attach: ['button[aria-label*="Attach" i]', 'button[aria-label*="Upload" i]'],
+      modelPicker: ['#model-select-trigger', 'button[aria-label*="Model select" i]', 'button[aria-label*="model" i][aria-haspopup]'],
+      convMenu: [],
+      deleteConfirm: []
     }
   };
 
@@ -192,6 +201,9 @@
     return String(inner.innerText || inner.textContent || '').replace(/[​-‍﻿]/g, '')
       .split('\n').map((l) => l.replace(/[ \t ]+/g, ' ').trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
   }
+  function responseVideos(el) {
+    return [...el.querySelectorAll('video')].map((v) => v.currentSrc || v.src || v.querySelector('source')?.src || '').filter((u) => u && !u.startsWith('blob:'));
+  }
   function responseImages(el) {
     return [...el.querySelectorAll('img')].filter((img) => {
       const src = img.currentSrc || img.src || '';
@@ -210,12 +222,50 @@
     return null;
   }
 
+  // Chọn model qua menu của trang (best effort): không chọn được thì giữ model hiện tại và cảnh báo.
+  async function selectModel(model) {
+    if (!model) return null;
+    const re = new RegExp(model.match, model.flags || 'i');
+    const picker = first(cfg.modelPicker || []);
+    if (!picker) return `Không thấy nút chọn model, giữ model hiện tại (muốn: ${model.label})`;
+    if (re.test(norm(picker.textContent || picker.getAttribute('aria-label')))) return null;
+    picker.click();
+    const items = () => [...document.querySelectorAll('[role="menuitem"], [role="menuitemradio"], [role="option"]')].filter(visible);
+    const item = await waitFor(() => items().find((el) => re.test(norm(el.textContent))), 2500);
+    if (!item) {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      return `Không thấy model "${model.label}" trong menu, giữ model hiện tại`;
+    }
+    item.click();
+    await sleep(400);
+    return null;
+  }
+
+  // Xoá cuộc trò chuyện vừa tạo. Chỉ xoá khi trang vẫn ở đúng cuộc trò chuyện đó.
+  async function deleteChat(conv) {
+    if (!conv || location.pathname !== conv || !/\/(c|app)\/[\w-]+/.test(conv)) return { ok: false, error: 'Trang không còn ở cuộc trò chuyện vừa tạo' };
+    const menu = first(cfg.convMenu || []);
+    if (!menu) return { ok: false, error: 'Không thấy menu cuộc trò chuyện' };
+    menu.click();
+    const del = await waitFor(() => [...document.querySelectorAll('[role="menuitem"], button')].filter(visible).find((el) => /^(delete|xoá|xóa)\b/i.test(norm(el.textContent))), 2500);
+    if (!del) { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return { ok: false, error: 'Không thấy mục Xoá' }; }
+    del.click();
+    const ok = await waitFor(() => first(cfg.deleteConfirm || []) || [...document.querySelectorAll('[role="dialog"] button, [role="alertdialog"] button')].filter(visible).find((b) => /^(delete|xoá|xóa)$/i.test(norm(b.textContent))), 3000);
+    if (!ok) return { ok: false, error: 'Không thấy nút xác nhận xoá' };
+    ok.click();
+    await waitFor(() => location.pathname !== conv, 5000);
+    return { ok: true };
+  }
+
   const jobs = new Map();
   let jobSeq = 0;
 
   async function submitTask(task) {
     const c = await waitFor(composer, 15000, 300);
     if (!c) return { ok: false, error: 'Không tìm thấy ô nhập của trang chat (đã đăng nhập chưa?)', category: 'setup' };
+    const warnings = [];
+    const mw = await selectModel(task.model);
+    if (mw) warnings.push(mw);
     if (task.refs?.length) {
       const a = await attach(task.refs);
       if (!a.ok) return { ok: false, error: a.error, category: 'error' };
@@ -224,7 +274,7 @@
     if (!s.ok) return { ok: false, error: s.error, category: 'error' };
     const token = `chat-${Date.now()}-${++jobSeq}`;
     jobs.set(token, {
-      token, before: new Set(responses()), prompt: compact(task.prompt), wantImage: task.chatMode === 'image',
+      token, before: new Set(responses()), prompt: compact(task.prompt), wantImage: task.chatMode !== 'text', wantVideo: !!task.wantVideo,
       startedAt: Date.now(), sig: '', lastChange: Date.now()
     });
     const btn = await waitFor(() => { const b = first(cfg.send); return b && !isDisabled(b) ? b : null; }, 15000, 200);
@@ -239,7 +289,7 @@
         return { ok: false, error: 'Không gửi được tin nhắn', category: 'error' };
       }
     }
-    return { ok: true, token };
+    return { ok: true, token, warnings };
   }
 
   function latestResponse(job) {
@@ -254,22 +304,24 @@
     const el = latestResponse(job);
     const streaming = !!first(cfg.stop);
     const text = el ? responseText(el) : '';
-    const images = el ? responseImages(el) : [];
-    const sig = `${text.length}|${images.join(',')}`;
+    const videos = el ? responseVideos(el) : [];
+    const images = el ? (job.wantVideo && videos.length ? [] : responseImages(el)) : [];
+    const sig = `${text.length}|${images.join(',')}|${videos.join(',')}`;
     if (sig !== job.sig) { job.sig = sig; job.lastChange = now; }
     const stable = now - job.lastChange;
-    const results = images.map((url) => ({ url, kind: 'image' }));
+    const results = [...videos.map((url) => ({ url, kind: 'video' })), ...images.map((url) => ({ url, kind: 'image' }))];
     const base = { progress: null, results, text };
 
     if (!el) return { status: now - job.startedAt > 90000 ? 'failed' : 'running', ...base, error: 'Trang chat không trả lời', category: 'error' };
     if (streaming) return { status: 'running', ...base };
     if (job.wantImage) {
-      if (images.length && stable >= 5000) return { status: 'done', ...base };
+      // Chờ video thì ảnh xem trước chưa phải kết quả cuối (trừ khi đứng yên 60s).
+      if (results.length && stable >= 5000 && (!job.wantVideo || videos.length || stable >= 60000)) return { status: 'done', ...base };
       // Lời từ chối / hết lượt rõ ràng: báo ngay, không chờ ảnh.
-      const quick = !images.length && text && stable >= 4000 ? classify(text) : null;
+      const quick = !results.length && text && stable >= 4000 ? classify(text) : null;
       if (quick) return { status: 'failed', ...base, error: text.slice(0, 300), category: quick };
       // Đang "Creating image": chưa có ảnh, văn bản ngắn; chờ tối đa 60s sau khi ngừng thay đổi.
-      if (!images.length && text && stable >= 60000) {
+      if (!results.length && text && stable >= 60000) {
         const cat = classify(text);
         return { status: 'failed', ...base, error: text.slice(0, 300), category: cat || 'error' };
       }
@@ -298,7 +350,7 @@
 
   function finalizeJob(token, results) {
     jobs.delete(token);
-    return (results || []).map((r) => ({ ...r, thumb: thumbOf(r.url) }));
+    return (results || []).map((r) => ({ ...r, thumb: r.kind === 'image' ? thumbOf(r.url) : '' }));
   }
 
   async function fetchMedia(url) {
@@ -341,7 +393,7 @@
 
   window.AFLChat = {
     account,
-    get provider() { return provider; }, setProvider, setOverrides, composer, setText, attach, submitTask, pollJob, finalizeJob, fetchMedia, diagnose,
+    get provider() { return provider; }, setProvider, setOverrides, composer, setText, selectModel, deleteChat, attach, submitTask, pollJob, finalizeJob, fetchMedia, diagnose,
     ready: () => !!composer()
   };
 })();

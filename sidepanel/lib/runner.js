@@ -3,6 +3,7 @@ import { store, uid } from './store.js';
 import * as flow from './flow.js';
 import { PROVIDERS } from './providers.js';
 import { buildFilename, extFor } from './prompts.js';
+import { applyFlowDefaults, chatOptions } from './defaults.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const FLOW_FIELDS = ['prompt', 'genType', 'videoMode', 'model', 'ratio', 'quantity', 'duration', 'resolution'];
@@ -149,8 +150,8 @@ export class Runner {
       task.chainDone = true;
     }
     const payload = isChat
-      ? { prompt: task.prompt, chatMode: task.chatMode || 'image' }
-      : { ...Object.fromEntries(FLOW_FIELDS.map((k) => [k, task[k]])), keepRefs: store.settings.keepRefs };
+      ? { chatMode: task.chatMode || 'image', ...chatOptions(provider, task, store.settings) }
+      : { ...Object.fromEntries(FLOW_FIELDS.map((k) => [k, applyFlowDefaults(task, store.settings)[k]])), keepRefs: store.settings.keepRefs };
     payload.refs = store.getRefs(task.refIds);
     let res;
     try {
@@ -192,9 +193,10 @@ export class Runner {
 
   async finish(task, a, r) {
     let results = r.results || [];
+    let conv = '';
     try {
       const fin = await flow.send(a.tabId, { type: 'afl:finalize', token: a.token, results });
-      if (fin?.ok) results = fin.results;
+      if (fin?.ok) ({ results, conv = '' } = fin);
     } catch (_) { /* giữ kết quả thô */ }
     // Tải tự động: theo task, tắt hẳn nếu cài đặt chung tắt (task MCP theo cài đặt MCP riêng).
     const auto = (task.autoDownload ?? true) && (task.source === 'mcp' ? store.settings.mcpAutoDownload !== false : store.settings.autoDownload !== false);
@@ -219,7 +221,27 @@ export class Runner {
     const what = task.chatMode === 'text' ? `${(r.text || '').length} ký tự` : `${results.length} kết quả`;
     this.log(`#${task.index} xong: ${what}${auto && saved.length ? `, đã tải ${saved.filter((s) => s.downloaded).length}` : ''}`, 'ok');
     this.changed();
+    if (PROVIDERS[task.provider]?.kind === 'chat') await this.chatCleanup(task, a, conv, auto || task.chatMode === 'text');
     this.settled(task);
+  }
+
+  // Sau khi gen thành công trên trang chat: xoá cuộc trò chuyện (nếu bật và kết quả đã được lưu),
+  // đóng tab khi không còn task nào của provider đó.
+  async chatCleanup(task, a, conv, kept) {
+    const s = store.settings, p = task.provider, name = PROVIDERS[p].name;
+    const followers = store.tasks.some((x) => x.chainPrev && x.batchId === task.batchId && x.index > task.index && !FINAL.has(x.status));
+    if (s[`${p}DeleteAfter`] && conv) {
+      if (!kept) this.log(`#${task.index}: giữ cuộc trò chuyện ${name} vì kết quả chưa được tải về`, 'warn');
+      else if (followers) this.log(`#${task.index}: giữ cuộc trò chuyện ${name} cho task dùng kết quả trước`);
+      else {
+        const r = await flow.send(a.tabId, { type: 'afl:deleteChat', conv }).catch((e) => ({ ok: false, error: e.message }));
+        this.log(r?.ok ? `#${task.index}: đã xoá cuộc trò chuyện ${name}` : `#${task.index}: không xoá được cuộc trò chuyện ${name} (${r?.error || 'lỗi'})`, r?.ok ? '' : 'warn');
+      }
+    }
+    if (s[`${p}AutoClose`] && !store.tasks.some((x) => x.provider === p && (x.status === 'pending' || x.status === 'running'))) {
+      await chrome.tabs.remove(a.tabId).catch(() => {});
+      this.log(`Đã đóng tab ${name}`);
+    }
   }
 
   baseName(task, n) {

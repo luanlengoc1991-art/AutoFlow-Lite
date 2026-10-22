@@ -8,7 +8,8 @@
     'afl:ping': () => ({ ok: true, provider: C.provider, editor: C.ready(), submit: C.ready(), inProject: true, account: C.account() }),
     'afl:submit': (m) => C.submitTask(m.task),
     'afl:poll': (m) => C.pollJob(m.token),
-    'afl:finalize': (m) => ({ ok: true, results: C.finalizeJob(m.token, m.results) }),
+    'afl:finalize': (m) => ({ ok: true, results: C.finalizeJob(m.token, m.results), conv: location.pathname }),
+    'afl:deleteChat': (m) => C.deleteChat(m.conv),
     'afl:fetch': async (m) => ({ ok: true, ...(await C.fetchMedia(m.url)) }),
     'afl:diagnose': () => ({ ok: true, report: C.diagnose() }),
     'afl:tracker': (m) => { window.AFLTracker?.update(m.state); return { ok: true }; }

@@ -310,6 +310,47 @@ try {
   const proj = await P(`(async()=>{const {store}=await import('./lib/store.js');return store.settings.project})()`);
   check('Lưu cài đặt từ cửa sổ Cài đặt → side panel nhận ngay', proj === 'CuteCats', proj);
 
+  // ---- Cài đặt → Nền tảng AI: mặc định model / tỷ lệ cho Flow và ChatGPT ----
+  await stp.ev(`document.querySelector('#general-sub [data-sub=platform]').click()`);
+  await sleep(300);
+  const platUi = await stp.ev(`({shown: !document.getElementById('sub-platform').hidden, img: [...document.querySelector('[data-s=flowImageModel]').options].map(o=>o.value), gpt: [...document.querySelector('[data-s=chatgptModel]').options].map(o=>o.textContent), conn: document.getElementById('flow-conn').textContent})`);
+  check('Nền tảng AI: danh sách model Flow (đã đồng bộ) + model ChatGPT', platUi.shown && platUi.img.includes('Imagen 4') && platUi.gpt.join('|') === 'Giữ như trang|Instant|Medium|High|Pro' && /Kết nối 1\/1/.test(platUi.conn), platUi);
+  await stp.send('Emulation.setDeviceMetricsOverride', { width: 560, height: 1400, deviceScaleFactor: 1, mobile: false });
+  await sleep(300);
+  fs.writeFileSync(path.join(workDir, 'e2e-settings-platform.png'), Buffer.from((await stp.send('Page.captureScreenshot', { format: 'png' })).result.data, 'base64'));
+  const setS = (k, v) => `(()=>{const e=document.querySelector('[data-s=${k}]');e.value=${JSON.stringify(v)};e.dispatchEvent(new Event('input',{bubbles:true}));})()`;
+  await stp.ev(setS('flowImageModel', 'Imagen 4'));
+  await stp.ev(setS('flowImageRatio', '1:1'));
+  await stp.ev(setS('chatgptRatio', '1:1'));
+  await stp.ev(setS('chatgptModel', 'pro'));
+  await stp.ev(`document.getElementById('save').click()`);
+  await sleep(1000);
+  const genLabel = await P(`(()=>{document.querySelector('[data-provider=flow]').click();document.querySelector('#gen-type [data-type=image]').click();return document.getElementById('gen-model').options[0].textContent})()`);
+  check('Gen hiện model mặc định khi để trống', genLabel === 'Model: mặc định (Imagen 4)', genLabel);
+  const beforeDef = (await flowPage.ev('window.mock.submits')).length;
+  await P(`(async()=>{const {store}=await import('./lib/store.js');Object.assign(store.gen,{model:'',ratio:'',characters:[],styleId:'',refIds:[],chainPrev:false,multi:false});return 1})()`);
+  await P(setVal('gen-model', ''));
+  await P(setVal('gen-ratio', ''));
+  await P(setVal('gen-text', 'default model check'));
+  await P(`document.getElementById('btn-generate').click()`);
+  list = await waitTasks((await tasks()).length, 150000);
+  for (let i = 0; i < 60 && (await flowPage.ev('window.mock.submits')).length === beforeDef; i++) await sleep(1000);
+  list = await waitTasks((await tasks()).length, 150000);
+  const defSub = (await flowPage.ev('window.mock.submits')).slice(beforeDef);
+  check('task để trống model/tỷ lệ → Flow nhận mặc định Imagen 4 + 1:1', defSub[0]?.text === 'default model check' && defSub[0].model === 'Imagen 4' && defSub[0].ratio === 'SQUARE', defSub);
+  await P(`document.querySelector('[data-provider=chatgpt]').click()`);
+  await P(setVal('gen-text', 'Draw a blue car'));
+  const nBefore = (await tasks()).length;
+  await P(`document.getElementById('btn-generate').click()`);
+  list = await waitTasks(nBefore + 1, 150000);
+  const gptSent = chatPage ? (await chatPage.ev('window.chatMock.sent')).at(-1)?.text || '' : '';
+  const gptLogs = await P(`document.getElementById('log-list').innerText`);
+  check('ChatGPT: tỷ lệ mặc định ghi vào prompt, model không có trên trang → cảnh báo, vẫn tạo xong', /Draw a blue car\s*Aspect ratio: 1:1\./.test(gptSent) && /giữ model hiện tại/.test(gptLogs) && list.at(-1)?.status === 'done', { gptSent, status: list.at(-1)?.status });
+  await stp.ev(setS('flowImageModel', '')); await stp.ev(setS('flowImageRatio', '')); await stp.ev(setS('chatgptRatio', '')); await stp.ev(setS('chatgptModel', ''));
+  await stp.ev(`document.getElementById('save').click()`);
+  await sleep(800);
+  await P(`document.querySelector('[data-provider=flow]').click()`);
+
   // ---- Workflow storyboard: ChatGPT viết mốc → Text Extract [image_prompt_02] → Flow ----
   await P(`(async()=>{
     const N=(id,type,data)=>({id,type,x:0,y:0,data:Object.assign({name:id,slug:id,enabled:true},data)});

@@ -24,6 +24,12 @@
   <main>
     <!-- ===== CÀI ĐẶT ===== -->
     <section class="pane active" id="pane-general">
+      <div class="subtabs" id="general-sub">
+        <button data-sub="chung" class="active">⚙ Chung</button>
+        <button data-sub="platform">🤖 Nền tảng AI</button>
+        <button data-sub="advanced">🔧 Nâng cao</button>
+      </div>
+      <div id="sub-chung">
       <h2>👤 Tài khoản AI</h2>
       <div class="acc-strip" id="acc-strip"></div>
 
@@ -44,6 +50,74 @@
         <div class="tip"><b>2</b><div><strong>Tắt extension tải tự động khác</strong><span>Chúng có thể xung đột với việc đổi tên file.</span></div><button class="icon-btn" data-open="chrome://extensions" title="Mở trang extension">↗</button></div>
       </div>
 
+      <h2>🔔 Thông báo</h2>
+      <label class="check"><input type="checkbox" data-s="notify"> Thông báo khi hoàn thành (prompt, task, workflow)</label>
+      <label class="check"><input type="checkbox" data-s="sound"> Phát âm thanh thông báo <button class="link" id="test-sound">nghe thử</button></label>
+      </div>
+
+      <!-- Nền tảng AI -->
+      <div id="sub-platform" hidden>
+        <h2>🧭 Nền tảng mặc định</h2>
+        <label>Provider mặc định khi tạo mới
+          <select data-s="defProvider">
+            <option value="">Giữ lựa chọn gần nhất</option>
+            <option value="flow">Google Flow</option><option value="chatgpt">ChatGPT</option><option value="gemini">Gemini</option><option value="grok">Grok</option>
+          </select></label>
+        <p class="hint">Provider được chọn sẵn khi mở Gen.</p>
+
+        <h2>✦ Chế độ Flow</h2>
+        <div class="modes">
+          <div class="mode on"><span class="mode-ic flow"></span><div><b>Web Mode <i class="dot ok"></i></b><span class="pill on" id="flow-conn">Đang kiểm tra…</span></div><span class="radio on"></span></div>
+          <div class="mode off" title="Cần API trả phí của bên thứ ba, AutoFlow Lite không hỗ trợ"><span class="mode-ic speed">⚡</span><div><b>Max Speed <i class="dot"></i></b><span class="muted">Không hỗ trợ</span></div><span class="radio"></span></div>
+        </div>
+        <p class="hint">Web Mode điều khiển trực tiếp giao diện Flow bằng tài khoản Google của bạn.</p>
+
+        <h2><span class="ph flow"></span>Google Flow</h2>
+        <div class="grid2">
+          <label>Loại mặc định<select data-s="flowType"><option value="">Giữ lựa chọn gần nhất</option><option value="image">Image</option><option value="video">Video</option></select></label>
+          <label>Tỷ lệ ảnh mặc định<select data-s="flowImageRatio" data-list="ratios"></select></label>
+          <label>Tỷ lệ video mặc định<select data-s="flowVideoRatio" data-list="ratios"></select></label>
+          <span></span>
+          <label>Model ảnh mặc định<select data-s="flowImageModel" data-list="imageModels"></select></label>
+          <label>Model video mặc định<select data-s="flowVideoModel" data-list="videoModels"></select></label>
+          <label>Thời lượng video mặc định<select data-s="flowDuration" data-list="durations"></select></label>
+          <div class="voices"><b>Giọng đọc Flow</b><span class="hint">Quét danh sách giọng đọc trong Flow (gồm cả giọng bạn tự tạo). Chỉ cần chạy 1 lần.</span>
+            <button class="btn accent" id="scan-voices">↻ Quét lại Voices</button><span class="hint" id="voices-state"></span></div>
+        </div>
+        <p class="hint">Dùng khi task để trống model / tỷ lệ / thời lượng (Gen để "giữ như Flow", workflow, MCP, Telegram). Danh sách lấy từ "Đồng bộ từ Flow" nếu đã đồng bộ.</p>
+
+        <h2><span class="ph" style="background:#10a37f"></span>ChatGPT</h2>
+        <div class="grid2">
+          <label>Tỷ lệ ChatGPT mặc định<select data-s="chatgptRatio" data-list="ratio:chatgpt"></select></label>
+          <label>Model ChatGPT mặc định<select data-s="chatgptModel" data-list="model:chatgpt"></select></label>
+        </div>
+        <label class="check"><input type="checkbox" data-s="chatgptAutoClose"> Tự đóng tab ChatGPT sau khi tạo xong</label>
+        <label class="check"><input type="checkbox" data-s="chatgptDeleteAfter"> Xoá tin nhắn sau khi gen thành công</label>
+        <details><summary>Nâng cao</summary>
+          <label class="check"><input type="checkbox" data-s="chatNewChat"> Mở cuộc trò chuyện mới cho mỗi prompt (ChatGPT, Gemini, Grok)</label>
+          <p class="hint">Chỉ xoá đúng cuộc trò chuyện AutoFlow vừa tạo, sau khi kết quả đã được tải về. Tỷ lệ được ghi vào cuối prompt khi tạo ảnh.</p>
+        </details>
+
+        <h2><span class="ph" style="background:linear-gradient(135deg,#4285f4,#a142f4)"></span>Gemini</h2>
+        <div class="grid2">
+          <label>Model Gemini mặc định<select data-s="geminiModel" data-list="model:gemini"></select></label>
+          <label>Tỷ lệ ảnh/video Gemini mặc định<select data-s="geminiRatio" data-list="ratio:gemini"></select></label>
+        </div>
+        <label class="check"><input type="checkbox" data-s="geminiAutoClose"> Tự đóng tab Gemini sau khi tạo xong</label>
+        <label class="check"><input type="checkbox" data-s="geminiDeleteAfter"> Xoá cuộc trò chuyện Gemini sau khi gen thành công</label>
+
+        <h2><span class="ph" style="background:#e5e5e5"></span>Grok</h2>
+        <div class="grid2">
+          <label>Mode mặc định<select data-s="grokMode"><option value="image">Ảnh</option><option value="video">Video</option></select></label>
+          <label>Tỷ lệ mặc định<select data-s="grokRatio" data-list="ratio:grok"></select></label>
+          <label>Chất lượng ảnh<select data-s="grokQuality" data-list="model:grok"></select></label>
+        </div>
+        <label class="check"><input type="checkbox" data-s="grokAutoClose"> Tự động đóng tab Grok sau khi xong</label>
+        <p class="hint">Model / chất lượng được chọn qua menu của trang; nếu trang không có lựa chọn đó, AutoFlow giữ model hiện tại và ghi cảnh báo vào Nhật ký.</p>
+      </div>
+
+      <!-- Nâng cao -->
+      <div id="sub-advanced" hidden>
       <h2>▶ Chạy hàng đợi</h2>
       <div class="grid3">
         <label>Task chạy cùng lúc<input type="number" min="1" max="5" data-s="concurrency"></label>
@@ -55,15 +129,11 @@
       <p class="hint">Khoảng nghỉ ngẫu nhiên giữa các lượt giúp thao tác giống người dùng thật.</p>
       <label class="check"><input type="checkbox" data-s="stopOnError"> Dừng hàng đợi khi task thất bại</label>
       <label class="check"><input type="checkbox" data-s="keepRefs"> Giữ ảnh tham chiếu đang có trên Flow giữa các task</label>
-      <label class="check"><input type="checkbox" data-s="chatNewChat"> Chat AI: mở cuộc trò chuyện mới cho mỗi prompt</label>
 
-      <h2>🔔 Thông báo</h2>
-      <label class="check"><input type="checkbox" data-s="notify"> Thông báo khi hoàn thành (prompt, task, workflow)</label>
-      <label class="check"><input type="checkbox" data-s="sound"> Phát âm thanh thông báo <button class="link" id="test-sound">nghe thử</button></label>
-
-      <h2>🛠 Nâng cao</h2>
+      <h2>🛠 Selector tuỳ chỉnh</h2>
       <p class="hint">Selector tuỳ chỉnh (JSON) khi trang đổi giao diện. Flow: editor, submit, settings, settingsPanel, modelPicker, addButton. Chat: {"chatgpt": {"composer": [], "send": [], "stop": [], "response": []}}.</p>
       <textarea data-s="selectors" rows="3" spellcheck="false" placeholder='{"submit": ["button[aria-label=&quot;Create&quot;]"]}'></textarea>
+      </div>
     </section>
 
     <!-- ===== TÀI KHOẢN AI ===== -->

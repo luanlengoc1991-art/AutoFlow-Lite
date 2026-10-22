@@ -88,12 +88,14 @@ function renderGen() {
   document.querySelectorAll('#split-row [data-split]').forEach((b) => b.classList.toggle('active', b.dataset.split === s.split));
   document.querySelectorAll('#gen-type [data-type]').forEach((b) => b.classList.toggle('active', b.dataset.type === s.genType));
   const o = optionsFor(s.genType);
-  fillSelect($('gen-model'), o.models, s.model, o.synced ? 'Model: giữ như Flow' : 'Model: giữ như Flow');
-  fillSelect($('gen-ratio'), o.ratios, s.ratio, 'Tỉ lệ');
+  const st = store.settings, video = s.genType === 'video';
+  const defModel = video ? st.flowVideoModel : st.flowImageModel, defRatio = video ? st.flowVideoRatio : st.flowImageRatio;
+  fillSelect($('gen-model'), o.models, s.model, defModel ? `Model: mặc định (${defModel})` : 'Model: giữ như Flow');
+  fillSelect($('gen-ratio'), o.ratios, s.ratio, defRatio ? `Tỉ lệ: mặc định (${defRatio})` : 'Tỉ lệ');
   $('qty-val').textContent = s.quantity;
   $('video-controls').hidden = s.genType !== 'video';
   $('gen-vmode').value = s.videoMode;
-  fillSelect($('gen-duration'), o.durations, s.duration, 'Thời lượng');
+  fillSelect($('gen-duration'), o.durations, s.duration, st.flowDuration ? `Thời lượng: mặc định (${st.flowDuration})` : 'Thời lượng');
   fillSelect($('gen-resolution'), o.resolutions, s.resolution, 'Độ phân giải');
   $('gen-repeat').value = s.repeat;
   $('gen-spin').value = s.spin;
@@ -809,23 +811,27 @@ document.querySelectorAll('[data-setting]').forEach((el) => el.addEventListener(
 
 async function syncFromFlow() {
   try {
-    const { tab } = await flow.ready();
-    toast('Đang đọc tuỳ chọn từ Flow…');
-    const r = await flow.send(tab.id, { type: 'afl:scrape' });
-    if (!r?.ok) throw new Error(r?.error || 'Không đọc được');
-    store.options = { ...r.options, at: Date.now() };
-    store.save('options');
-    const c = await flow.send(tab.id, { type: 'afl:scrapeComponents' }).catch(() => null);
-    if (c?.ok) { store.components = c.components; store.save('components'); }
-    renderGen(); renderFlowInfo();
-    const o = r.options;
-    const comp = store.components || {};
-    log(`Đồng bộ Flow: ảnh [${o.image.models.join(', ')}], video [${o.video.models.join(', ')}], ${comp.characters?.length || 0} nhân vật, ${comp.voices?.length || 0} giọng`, 'ok');
-    toast(`Đã đồng bộ ${o.image.models.length + o.video.models.length} model, ${comp.characters?.length || 0} nhân vật`);
+    await syncFlowOptions();
   } catch (e) {
     log(`Đồng bộ thất bại: ${e.message}`, 'error');
     toast(`Đồng bộ thất bại: ${e.message}`);
   }
+}
+async function syncFlowOptions() {
+  const { tab } = await flow.ready();
+  toast('Đang đọc tuỳ chọn từ Flow…');
+  const r = await flow.send(tab.id, { type: 'afl:scrape' });
+  if (!r?.ok) throw new Error(r?.error || 'Không đọc được');
+  store.options = { ...r.options, at: Date.now() };
+  store.save('options');
+  const c = await flow.send(tab.id, { type: 'afl:scrapeComponents' }).catch(() => null);
+  if (c?.ok) { store.components = c.components; await chrome.storage.local.set({ aflComponents: c.components }); }
+  renderGen(); renderFlowInfo();
+  const o = r.options;
+  const comp = store.components || {};
+  log(`Đồng bộ Flow: ảnh [${o.image.models.join(', ')}], video [${o.video.models.join(', ')}], ${comp.characters?.length || 0} nhân vật, ${comp.voices?.length || 0} giọng`, 'ok');
+  toast(`Đã đồng bộ ${o.image.models.length + o.video.models.length} model, ${comp.characters?.length || 0} nhân vật`);
+  return { voices: comp.voices?.length || 0 };
 }
 $('btn-sync').addEventListener('click', syncFromFlow);
 $('btn-sync2').addEventListener('click', syncFromFlow);
@@ -1121,6 +1127,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return false;
   }
   if (msg?.type === 'afl:reload') { location.reload(); return false; }
+  if (msg?.type === 'afl:syncFlow') {
+    syncFlowOptions().then((r) => sendResponse({ ok: true, ...r }), (e) => sendResponse({ ok: false, error: e.message }));
+    return true;
+  }
   if (msg?.type === 'afl:clean') {
     if (msg.what === 'queue') { store.tasks = store.tasks.filter((t) => t.status !== 'done'); store.save('tasks', 0); store.gcRefs(); renderTasks(); }
     if (msg.what === 'history') { store.history = []; store.save('history', 0); renderHistory(); }
@@ -1274,12 +1284,21 @@ chrome.runtime.onMessage.addListener((msg) => {
 });
 
 // ---------- Khởi động ----------
+function applyGenDefaults() {
+  const st = store.settings, gen = g();
+  if (st.defProvider && PROVIDERS[st.defProvider]) gen.provider = st.defProvider;
+  if (st.flowType && gen.genType !== st.flowType) Object.assign(gen, { genType: st.flowType, model: '', ratio: '', duration: '', resolution: '' });
+  if (gen.provider === 'grok') gen.chatMode = 'image';
+  saveGen();
+}
+
 (async function init() {
   await store.load();
   // Task "đang tạo" từ phiên trước bị gián đoạn: đưa về hàng chờ.
   let resumed = 0;
   for (const t of store.tasks) if (t.status === 'running') { t.status = 'pending'; t.note = 'Bị gián đoạn ở phiên trước'; resumed++; }
   if (resumed) { store.save('tasks'); log(`${resumed} task bị gián đoạn đã được đưa lại vào hàng chờ`, 'warn'); }
+  applyGenDefaults();
   renderGen(); renderTasks(); renderRunState(); renderHistory(); renderLibrary(); renderLogs(); renderSettings(); renderFlowInfo(); renderWorkflows(); renderSavedTasks();
   mcp.start();
   telegram.start();

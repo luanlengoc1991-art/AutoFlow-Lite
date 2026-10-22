@@ -2,6 +2,7 @@
 import { store, DEFAULT_SETTINGS } from './lib/store.js';
 import { checkAccount, checkAll, STATE_TEXT, connectAccount } from './lib/accounts.js';
 import { PROVIDERS } from './lib/providers.js';
+import { FLOW_IMAGE_MODELS, FLOW_VIDEO_MODELS, FLOW_RATIOS, FLOW_DURATIONS, CHAT_MODELS, CHAT_RATIOS } from './lib/defaults.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -44,11 +45,51 @@ document.querySelectorAll('#tabs [data-tab]').forEach((b) => b.addEventListener(
 }));
 const params = new URLSearchParams(location.search);
 if (params.get('tab')) document.querySelector(`#tabs [data-tab="${params.get('tab')}"]`)?.click();
+document.querySelectorAll('#general-sub [data-sub]').forEach((b) => b.addEventListener('click', () => {
+  document.querySelectorAll('#general-sub [data-sub]').forEach((x) => x.classList.toggle('active', x === b));
+  for (const id of ['chung', 'platform', 'advanced']) $(`sub-${id}`).hidden = b.dataset.sub !== id;
+}));
+if (params.get('sub')) document.querySelector(`#general-sub [data-sub="${params.get('sub')}"]`)?.click();
 document.querySelectorAll('#agent-sub [data-sub]').forEach((b) => b.addEventListener('click', () => {
   document.querySelectorAll('#agent-sub [data-sub]').forEach((x) => x.classList.toggle('active', x === b));
   $('sub-mcp').hidden = b.dataset.sub !== 'mcp';
   $('sub-telegram').hidden = b.dataset.sub !== 'telegram';
 }));
+
+// ---------- Danh sách lựa chọn của Nền tảng AI ----------
+// Flow: ưu tiên danh sách thật đã đồng bộ, bổ sung gợi ý mặc định.
+function listOptions(name) {
+  const o = store.options || {};
+  // Trùng tên khi bỏ emoji/ký hiệu (vd. "🍌 Nano Banana Pro" từ Flow và gợi ý "Nano Banana Pro"): giữ bản đầu.
+  const key = (v) => v.replace(/[^\p{L}\p{N}.:\s-]/gu, '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const merge = (...lists) => {
+    const seen = new Set();
+    return lists.flat().filter((v) => v && !seen.has(key(v)) && seen.add(key(v))).map((v) => [v, v]);
+  };
+  if (name === 'imageModels') return merge(o.image?.models || [], FLOW_IMAGE_MODELS);
+  if (name === 'videoModels') return merge(o.video?.models || [], FLOW_VIDEO_MODELS);
+  if (name === 'ratios') return merge(o.image?.ratios || [], o.video?.ratios || [], FLOW_RATIOS);
+  if (name === 'durations') return merge(o.video?.durations || [], FLOW_DURATIONS);
+  const [kind, p] = name.split(':');
+  if (kind === 'model') return CHAT_MODELS[p].map((m) => [m.value, m.label]);
+  if (kind === 'ratio') return CHAT_RATIOS[p];
+  return [];
+}
+document.querySelectorAll('select[data-list]').forEach((sel) => {
+  sel.innerHTML = [['', 'Giữ như trang'], ...listOptions(sel.dataset.list)].map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
+});
+function renderVoices() {
+  const n = store.components?.voices?.length || 0;
+  $('voices-state').textContent = n ? `Đã sync ${n} giọng` : 'Chưa sync — click Quét lại để bắt đầu';
+}
+$('scan-voices').addEventListener('click', async () => {
+  $('voices-state').textContent = 'Đang quét…';
+  const r = await chrome.runtime.sendMessage({ type: 'afl:syncFlow' }).catch(() => null);
+  if (!r) { $('voices-state').textContent = 'Mở side panel AutoFlow rồi thử lại'; return; }
+  if (!r.ok) { $('voices-state').textContent = r.error || 'Không quét được'; return; }
+  await store.load();
+  renderVoices();
+});
 
 // ---------- Ràng buộc trường ----------
 function fill() {
@@ -109,10 +150,16 @@ function accMini() {
       <span class="${st?.state || ''}">${esc(st ? STATE_TEXT[st.state] : '…')}</span>${st?.label ? `<span>${esc(st.label)}</span>` : ''}</div>`;
   }).join('');
 }
+function renderFlowConn() {
+  const st = accState.flow?.state;
+  $('flow-conn').textContent = st === 'ready' ? '● Kết nối 1/1' : st ? STATE_TEXT[st] : 'Đang kiểm tra…';
+  $('flow-conn').className = `pill ${st === 'ready' ? 'on' : 'warn'}`;
+}
 async function renderAccounts(refresh) {
   if (refresh) {
     accState = Object.fromEntries((await checkAll()).map((r) => [r.provider, r]));
     accMini();
+    renderFlowConn();
   }
   $('acc-list').innerHTML = Object.keys(PROVIDERS).map((p) => {
     const st = accState[p];
@@ -230,5 +277,6 @@ $('restore').addEventListener('change', async (e) => {
 });
 
 fill();
+renderVoices();
 accMini();
 renderAccounts(true);
