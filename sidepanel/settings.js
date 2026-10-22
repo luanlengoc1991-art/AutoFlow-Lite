@@ -48,8 +48,11 @@ if (params.get('tab')) document.querySelector(`#tabs [data-tab="${params.get('ta
 document.querySelectorAll('#general-sub [data-sub]').forEach((b) => b.addEventListener('click', () => {
   document.querySelectorAll('#general-sub [data-sub]').forEach((x) => x.classList.toggle('active', x === b));
   for (const id of ['chung', 'platform', 'advanced']) $(`sub-${id}`).hidden = b.dataset.sub !== id;
+  try { localStorage.setItem('aflSettingsSub', b.dataset.sub); } catch (_) { /* không lưu được */ }
 }));
-if (params.get('sub')) document.querySelector(`#general-sub [data-sub="${params.get('sub')}"]`)?.click();
+let lastSub = 'platform';
+try { lastSub = localStorage.getItem('aflSettingsSub') || 'platform'; } catch (_) { /* mặc định */ }
+document.querySelector(`#general-sub [data-sub="${params.get('sub') || lastSub}"]`)?.click();
 document.querySelectorAll('#agent-sub [data-sub]').forEach((b) => b.addEventListener('click', () => {
   document.querySelectorAll('#agent-sub [data-sub]').forEach((x) => x.classList.toggle('active', x === b));
   $('sub-mcp').hidden = b.dataset.sub !== 'mcp';
@@ -58,13 +61,20 @@ document.querySelectorAll('#agent-sub [data-sub]').forEach((b) => b.addEventList
 
 // ---------- Danh sách lựa chọn của Nền tảng AI ----------
 // Flow: ưu tiên danh sách thật đã đồng bộ, bổ sung gợi ý mặc định.
+const RATIO_ICON = { '16:9': '▭', '4:3': '▭', '3:2': '▭', '1:1': '□', '3:4': '▯', '2:3': '▯', '9:16': '▯' };
+const ratioLabel = (r, text = r) => `${RATIO_ICON[r] || '▯'} ${text}`;
+function label(v) {
+  if (RATIO_ICON[v]) return ratioLabel(v);
+  if (/nano banana/i.test(v) && !/🍌/.test(v)) return `🍌 ${v}`;
+  return v;
+}
 function listOptions(name) {
   const o = store.options || {};
   // Trùng tên khi bỏ emoji/ký hiệu (vd. "🍌 Nano Banana Pro" từ Flow và gợi ý "Nano Banana Pro"): giữ bản đầu.
   const key = (v) => v.replace(/[^\p{L}\p{N}.:\s-]/gu, '').replace(/\s+/g, ' ').trim().toLowerCase();
   const merge = (...lists) => {
     const seen = new Set();
-    return lists.flat().filter((v) => v && !seen.has(key(v)) && seen.add(key(v))).map((v) => [v, v]);
+    return lists.flat().filter((v) => v && !seen.has(key(v)) && seen.add(key(v))).map((v) => [v, label(v)]);
   };
   if (name === 'imageModels') return merge(o.image?.models || [], FLOW_IMAGE_MODELS);
   if (name === 'videoModels') return merge(o.video?.models || [], FLOW_VIDEO_MODELS);
@@ -72,7 +82,7 @@ function listOptions(name) {
   if (name === 'durations') return merge(o.video?.durations || [], FLOW_DURATIONS);
   const [kind, p] = name.split(':');
   if (kind === 'model') return CHAT_MODELS[p].map((m) => [m.value, m.label]);
-  if (kind === 'ratio') return CHAT_RATIOS[p];
+  if (kind === 'ratio') return CHAT_RATIOS[p].map(([v, l]) => [v, ratioLabel(v, l)]);
   return [];
 }
 document.querySelectorAll('select[data-list]').forEach((sel) => {

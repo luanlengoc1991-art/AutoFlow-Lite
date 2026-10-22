@@ -1,5 +1,29 @@
 // Lưu trữ (chrome.storage.local): cài đặt, form Gen, hàng đợi, lịch sử, thư viện prompt, ảnh tham chiếu.
 
+// Mặc định của Cài đặt → Nền tảng AI.
+export const PLATFORM_DEFAULTS = {
+  defProvider: 'flow',
+  flowType: 'image',
+  flowImageRatio: '9:16',
+  flowVideoRatio: '9:16',
+  flowImageModel: 'Nano Banana 2.1',
+  flowVideoModel: 'Omni 1.1 Flash',
+  flowDuration: '',
+  chatgptRatio: '9:16',
+  chatgptModel: 'instant',
+  chatgptAutoClose: false,
+  chatgptDeleteAfter: true,
+  geminiModel: 'flash',
+  geminiRatio: '',
+  geminiAutoClose: false,
+  geminiDeleteAfter: true,
+  grokMode: 'image',
+  grokRatio: '9:16',
+  grokQuality: 'fast',
+  grokAutoClose: false
+};
+const PLATFORM_DEFAULTS_V = 1;
+
 export const DEFAULT_SETTINGS = {
   concurrency: 1,
   delayMin: 3,
@@ -18,26 +42,8 @@ export const DEFAULT_SETTINGS = {
   autoDownload: true,
   project: '',
   sound: true,
-  // Nền tảng AI: rỗng = giữ như trang / lựa chọn gần nhất
-  defProvider: '',
-  flowType: '',
-  flowImageRatio: '',
-  flowVideoRatio: '',
-  flowImageModel: '',
-  flowVideoModel: '',
-  flowDuration: '',
-  chatgptRatio: '',
-  chatgptModel: '',
-  chatgptAutoClose: false,
-  chatgptDeleteAfter: false,
-  geminiModel: '',
-  geminiRatio: '',
-  geminiAutoClose: false,
-  geminiDeleteAfter: false,
-  grokMode: 'image',
-  grokRatio: '',
-  grokQuality: '',
-  grokAutoClose: false,
+  // Nền tảng AI (rỗng = giữ như trang / lựa chọn gần nhất)
+  ...PLATFORM_DEFAULTS,
   // Cầu nối MCP (AI Agent) và bot Telegram
   mcpEnabled: false,
   mcpPort: 17321,
@@ -100,6 +106,12 @@ class Store {
   async load() {
     const data = await chrome.storage.local.get(Object.values(KEYS));
     this.settings = { ...DEFAULT_SETTINGS, ...(data[KEYS.settings] || {}) };
+    // Bản 0.5.0 lưu ô trống cho Nền tảng AI: điền mặc định một lần.
+    if (this.settings.platformDefaultsV !== PLATFORM_DEFAULTS_V) {
+      for (const [k, v] of Object.entries(PLATFORM_DEFAULTS)) if (this.settings[k] === '' || this.settings[k] === undefined) this.settings[k] = v;
+      this.settings.platformDefaultsV = PLATFORM_DEFAULTS_V;
+      await chrome.storage.local.set({ [KEYS.settings]: this.settings });
+    }
     this.gen = { ...DEFAULT_GEN, ...(data[KEYS.gen] || {}) };
     this.tasks = data[KEYS.tasks] || [];
     this.history = data[KEYS.history] || [];

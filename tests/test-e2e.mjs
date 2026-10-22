@@ -77,6 +77,7 @@ try {
   const setVal = (id, v) => `(()=>{const e=document.getElementById('${id}');e.value=${JSON.stringify(v)};e.dispatchEvent(new Event('input'));e.dispatchEvent(new Event('change'));})()`;
   const setSetting = (k, v) => `(()=>{const e=document.querySelector('[data-setting=${k}]');e.value=${JSON.stringify(v)};e.dispatchEvent(new Event('change'));})()`;
 
+  await P(`(async()=>{const {store,PLATFORM_DEFAULTS}=await import('./lib/store.js');for(const k of Object.keys(PLATFORM_DEFAULTS))store.settings[k]=typeof PLATFORM_DEFAULTS[k]==='boolean'?false:'';store.settings.grokMode='image';await chrome.storage.local.set({aflSettings:store.settings});return 1})()`);
   const pill = await P(`document.querySelector('#flow-status .label').textContent + '|' + document.querySelector('#flow-status').title`);
   check('side panel nhận diện tab Flow', /^Flow\|Đã kết nối/.test(pill), pill);
 
@@ -313,8 +314,10 @@ try {
   // ---- Cài đặt → Nền tảng AI: mặc định model / tỷ lệ cho Flow và ChatGPT ----
   await stp.ev(`document.querySelector('#general-sub [data-sub=platform]').click()`);
   await sleep(300);
-  const platUi = await stp.ev(`({shown: !document.getElementById('sub-platform').hidden, img: [...document.querySelector('[data-s=flowImageModel]').options].map(o=>o.value), gpt: [...document.querySelector('[data-s=chatgptModel]').options].map(o=>o.textContent), conn: document.getElementById('flow-conn').textContent})`);
-  check('Nền tảng AI: danh sách model Flow (đã đồng bộ) + model ChatGPT', platUi.shown && platUi.img.includes('Imagen 4') && platUi.gpt.join('|') === 'Giữ như trang|Instant|Medium|High|Pro' && /Kết nối 1\/1/.test(platUi.conn), platUi);
+  const freshDefaults = await P(`(async()=>{const m=await import('./lib/store.js');return m.DEFAULT_SETTINGS.flowImageModel+'|'+m.DEFAULT_SETTINGS.chatgptModel+'|'+m.DEFAULT_SETTINGS.defProvider})()`);
+  check('Nền tảng AI: mặc định giống TobyFlow (Nano Banana 2.1, Instant, Google Flow)', freshDefaults === 'Nano Banana 2.1|instant|flow', freshDefaults);
+  const platUi = await stp.ev(`({shown: !document.getElementById('sub-platform').hidden, img: [...document.querySelector('[data-s=flowImageModel]').options].map(o=>o.value), gpt: [...document.querySelector('[data-s=chatgptModel]').options].map(o=>o.textContent), r: document.querySelector('[data-s=chatgptRatio] option[value="9:16"]').textContent, conn: document.getElementById('flow-conn').textContent})`);
+  check('Nền tảng AI: danh sách model Flow (đã đồng bộ) + model ChatGPT', platUi.shown && platUi.img.includes('Imagen 4') && platUi.gpt.join('|') === 'Giữ như trang|Instant|Medium|High|Pro' && platUi.r === '▯ Story (9:16)' && /Kết nối 1\/1/.test(platUi.conn), platUi);
   await stp.send('Emulation.setDeviceMetricsOverride', { width: 560, height: 1400, deviceScaleFactor: 1, mobile: false });
   await sleep(300);
   fs.writeFileSync(path.join(workDir, 'e2e-settings-platform.png'), Buffer.from((await stp.send('Page.captureScreenshot', { format: 'png' })).result.data, 'base64'));
