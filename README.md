@@ -35,6 +35,12 @@ AutoFlow không dùng API key hay server trung gian: nó điều khiển trực 
 - Gen: nút **📷 Chụp màn hình** thêm ảnh chụp tab đang mở làm ảnh tham chiếu.
 - Trợ lý prompt kiểm tra Ready trước khi gửi và hỏi xác nhận.
 
+## Nền tảng AI (Cài đặt → Cài đặt → Nền tảng AI)
+
+- **Provider mặc định** khi mở Gen; **Chế độ Flow**: Web Mode (Max Speed qua API không hỗ trợ).
+- **Google Flow**: loại, tỷ lệ ảnh/video, model ảnh/video, thời lượng mặc định; **Quét lại Voices**. Dùng khi task để trống (Gen, workflow, MCP, Telegram).
+- **ChatGPT / Gemini / Grok**: tỷ lệ (ghi vào cuối prompt khi tạo ảnh), model hoặc chất lượng (chọn qua menu của trang; không có thì giữ model hiện tại và cảnh báo), tự đóng tab khi xong, xoá cuộc trò chuyện sau khi gen thành công (chỉ xoá đúng cuộc trò chuyện vừa tạo, sau khi đã tải kết quả). Grok có Mode Ảnh/Video.
+
 ## AI Agent (MCP) và Telegram
 
 - **MCP**: `mcp/autoflow-mcp.mjs` (Node 18+, không cần cài thư viện) là máy chủ MCP qua stdio.
