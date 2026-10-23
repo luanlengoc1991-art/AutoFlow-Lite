@@ -23,7 +23,7 @@
     const p = await D.setPrompt(clean);
     if (!p.ok) return { ok: false, error: p.error, category: 'error' };
     const token = await D.startJob({ ...task, prompt: clean });
-    const s = await D.submit();
+    const s = task.manualSubmit ? await D.waitManualSubmit() : await D.submit();
     if (!s.ok) return { ok: false, error: s.error, category: 'error' };
     return { ok: true, token, warnings: settings.warnings };
   }
@@ -37,6 +37,7 @@
     'afl:poll': (m) => D.pollJob(m.token),
     'afl:finalize': async (m) => ({ ok: true, results: await D.finalizeJob(m.token, m.results) }),
     'afl:scrape': async () => ({ ok: true, options: await D.scrapeOptions() }),
+    'afl:listMedia': async (m) => ({ ok: true, items: await D.listProjectMedia(m.opts) }),
     'afl:scrapeComponents': async () => ({ ok: true, components: await D.scrapeComponents() }),
     'afl:downloadMenu': (m) => D.downloadViaMenu(m.url, m.label),
     'afl:lastFrame': async (m) => ({ ok: true, ...(await D.lastFrame(m.url)) }),

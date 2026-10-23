@@ -57,6 +57,7 @@
     <button class="tab" data-tab="prompts" role="tab"><svg><use href="#i-book"/></svg>Prompts</button>
     <button class="tab" data-tab="tasks" role="tab"><svg><use href="#i-copy"/></svg>Tasks</button>
     <span class="tab-sep"></span>
+    <button class="tab icon-only" data-tab="photos" role="tab" title="Ảnh trong Flow"><svg><use href="#i-image"/></svg></button>
     <button class="tab icon-only" data-tab="tools" role="tab" title="Công cụ"><svg><use href="#i-shapes"/></svg></button>
     <button class="tab icon-only" data-tab="queue" role="tab" title="Hàng đợi"><svg><use href="#i-list"/></svg><span class="badge" id="tasks-badge" hidden></span></button>
     <button class="tab icon-only" data-tab="history" role="tab" title="Lịch sử"><svg><use href="#i-clock"/></svg></button>
@@ -75,6 +76,7 @@
         <div class="mention-menu" id="mention-menu" hidden></div>
         <div class="editor-tools">
           <button class="chip" id="btn-assistant" title="Nhờ ChatGPT/Gemini/Grok viết prompt"><svg><use href="#i-wand"/></svg>Trợ lý</button>
+          <button class="chip" id="btn-image-prompt" title="Prompt từ ảnh: chuột phải vào ảnh trên trang bất kỳ → AutoFlow, hoặc bấm để chọn ảnh / xem lịch sử">🖼 Từ ảnh</button>
           <button class="chip" id="btn-library" title="Chèn từ thư viện prompt"><svg><use href="#i-book"/></svg>Thư viện</button>
           <button class="chip" id="btn-import" title="Nhập .txt hoặc .csv (có cột prompt, type, model, ratio, quantity…)"><svg><use href="#i-file"/></svg>Import .txt/.csv</button>
           <input type="file" id="file-import" accept=".txt,.csv,text/plain,text/csv" hidden>
@@ -280,6 +282,34 @@
       <p class="empty" id="hist-empty">Chưa có kết quả nào.</p>
     </section>
 
+    <!-- ================= ẢNH TRONG FLOW ================= -->
+    <section class="pane" id="pane-photos">
+      <div class="subtabs" id="ph-subtabs">
+        <button data-sub="albums"><svg><use href="#i-copy"/></svg>Album</button>
+        <button data-sub="flow" class="active"><svg><use href="#i-image"/></svg>Ảnh Flow</button>
+        <button data-sub="search"><svg><use href="#i-refimg"/></svg>Tìm ảnh</button>
+      </div>
+      <div id="ph-albums" hidden></div>
+      <div id="ph-websearch" hidden></div>
+      <div id="ph-flow">
+      <div class="row-head">
+        <input id="ph-search" class="search grow" type="search" placeholder="Tìm theo prompt…">
+        <button class="link" id="ph-load"><svg><use href="#i-sync"/></svg>Tải từ Flow</button>
+      </div>
+      <div class="ph-filter" id="ph-filter"><button class="chip on" data-kind="">Tất cả</button><button class="chip" data-kind="image">Ảnh</button><button class="chip" data-kind="video">Video</button><span class="muted" id="ph-total"></span></div>
+      <div id="ph-grid" class="ph-grid"></div>
+      <p class="empty" id="ph-empty">Mở một project trên Google Flow rồi bấm "Tải từ Flow" để xem ảnh/video trong project.</p>
+      <div class="ph-bar" id="ph-bar" hidden>
+        <b id="ph-count"></b><span class="spacer"></span>
+        <button class="chip" data-ph="ref">Làm tham chiếu</button>
+        <button class="chip" data-ph="dl">Tải về</button>
+        <button class="chip" data-ph="prompt">Prompt từ ảnh</button>
+        <button class="chip" data-ph="album">Thêm vào album</button>
+        <button class="icon-btn small" data-ph="clear" title="Bỏ chọn"><svg><use href="#i-x"/></svg></button>
+      </div>
+      </div>
+    </section>
+
     <!-- ================= LOGS ================= -->
     <section class="pane" id="pane-logs">
       <div class="row-head">
@@ -306,6 +336,9 @@
         <label>Timeout mỗi task (phút) <input type="number" data-setting="timeoutMin" min="1" max="60"></label>
       </div>
       <label class="switch line"><input type="checkbox" data-setting="stopOnError"><span></span>Dừng hàng đợi khi task thất bại</label>
+      <label class="switch line"><input type="checkbox" data-setting="confirmRun"><span></span>Hỏi xác nhận trước khi chạy</label>
+      <label class="stack">Cách gửi prompt lên Flow <select data-setting="submitMode"><option value="auto">Tự gửi (điền prompt + ảnh rồi bấm Tạo)</option><option value="manual">Gửi tay (điền sẵn, bạn tự bấm Tạo)</option></select></label>
+      <label class="switch line"><input type="checkbox" data-setting="reloadBeforeRun"><span></span>Tải lại trang Flow trước khi chạy</label>
       <label class="switch line"><input type="checkbox" data-setting="keepRefs"><span></span>Giữ ảnh tham chiếu đang có trên Flow giữa các task</label>
       <label class="switch line"><input type="checkbox" data-setting="notify"><span></span>Thông báo khi xong / cần xử lý</label>
 

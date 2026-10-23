@@ -82,6 +82,36 @@
     return { ok: true };
   }
 
+  // Theo dõi phản hồi API trên trang Flow: báo mã lỗi PUBLIC_ERROR_* (hết credit, hoạt động bất thường…)
+  // cho content script, vì Flow không phải lúc nào cũng hiện lỗi trên giao diện.
+  const NET_PAGES = ['flow.google.com', 'labs.google'];
+  const reportCodes = (text, status) => {
+    // Chỉ phản hồi lỗi (HTTP lỗi hoặc có trường "error"), không phải dữ liệu tình cờ chứa tên mã lỗi.
+    if (status < 400 && !/"error"\s*:/.test(text)) return;
+    const codes = [...new Set(String(text).match(/PUBLIC_ERROR_[A-Z_]+/g) || [])];
+    if (codes.length) window.postMessage({ src: 'afl-net', codes, status, at: Date.now() }, '*');
+  };
+  if (NET_PAGES.includes(location.hostname)) {
+    const nativeFetch = window.fetch;
+    window.fetch = async function () {
+      const res = await nativeFetch.apply(this, arguments);
+      try {
+        const ct = res.headers.get('content-type') || '';
+        if (!/event-stream/.test(ct) && /json|text|protobuf/.test(ct) && +(res.headers.get('content-length') || 0) < 2e6) {
+          res.clone().text().then((t) => reportCodes(t, res.status), () => {});
+        }
+      } catch (_) { /* phản hồi không đọc được */ }
+      return res;
+    };
+    const nativeSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.send = function () {
+      this.addEventListener('load', () => {
+        try { if (this.responseType === '' || this.responseType === 'text') reportCodes(this.responseText.slice(0, 2e6), this.status); } catch (_) { /* bỏ qua */ }
+      });
+      return nativeSend.apply(this, arguments);
+    };
+  }
+
   const OPS = {
     setPrompt: (d) => setPrompt(d.text),
     armFilePick: (d) => arm(d.ms),

@@ -155,12 +155,21 @@ export class Runner {
       : kind === 'gen' ? genOptions(task, store.settings)
       : { ...Object.fromEntries(FLOW_FIELDS.map((k) => [k, applyFlowDefaults(task, store.settings, store.options)[k]])), keepRefs: store.settings.keepRefs };
     payload.refs = store.getRefs(task.refIds);
+    const manual = kind === 'flow' && store.settings.submitMode === 'manual';
+    if (manual) {
+      payload.manualSubmit = true;
+      chrome.tabs.update(tab.id, { active: true }).catch(() => {});
+      this.setMessage(`#${task.index}: đã điền prompt, hãy kiểm tra rồi bấm Tạo trên Flow`, 'warn');
+      this.changed();
+      this.broadcast(true);
+    }
     let res;
     try {
       res = await flow.send(tab.id, { type: 'afl:submit', task: payload });
     } catch (e) {
       res = { ok: false, error: `Mất kết nối trang ${PROVIDERS[provider].name}: ${e.message || e}`, category: 'error' };
     }
+    if (manual) { this.setMessage(''); this.changed(); }
     if (!res?.ok) { this.fail(task, res?.error, res?.category); return; }
     for (const w of res.warnings || []) this.log(`#${task.index}: ${w}`, 'warn');
     this.log(`#${task.index} đã gửi (${PROVIDERS[provider].name}): ${task.prompt.slice(0, 60)}`);

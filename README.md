@@ -25,8 +25,20 @@ Viết lại độc lập theo hành vi của TobyFlow (đối chiếu với 2 v
 | **Prompts** | Thư viện prompt |
 | **Tasks** | Task đã lưu, nhóm theo ngày: tên, provider, ảnh/video, prompt đầu, trạng thái lần chạy, bật/tắt, ⋮ (chạy, mở trong Gen, cập nhật từ Gen, nhân bản, đổi tên, xoá). **Chạy tất cả** (task đang bật hoặc đã tích chọn), Parallel |
 | Công cụ | **Angles** (vòng chọn góc máy kéo được, độ cao camera, khoảng cách, góc có sẵn, tạo nhiều góc cùng lúc) và **Effects** (17 hiệu ứng: chỉnh màu, ánh sáng, thời tiết, nghệ thuật, phong cách, kèm thanh cường độ), mỗi công cụ mở trong cửa sổ riêng |
+| **Ảnh** | **Album**: bộ ảnh đặt tên, lưu trong máy (tạo/đổi tên/xoá, kéo thả hoặc chọn ảnh, chuột phải → AutoFlow → **Thêm vào album**); cả album hoặc ảnh đã chọn → **Làm tham chiếu**, **Tải về** (`<thư mục>/Album/<tên album>/`), **Prompt từ ảnh**. **Ảnh Flow**: ảnh/video trong project Flow đang mở (tự cuộn để nạp hết), lọc Ảnh/Video, tìm theo prompt; chọn nhiều → **Làm tham chiếu**, **Tải về** (theo độ phân giải trong Cài đặt), **Prompt từ ảnh**, **Thêm vào album**. **Tìm ảnh**: nhập từ khoá, chọn Pinterest / Youtube / Tiktok / Google / Facebook / Unsplash / Etsy / Pixabay / Amazon để mở trang kết quả, rồi chuột phải vào ảnh để đưa về AutoFlow |
 | Hàng đợi | Mọi lượt tạo: tiến độ, thumbnail, thử lại |
 | Lịch sử / Nhật ký / Cài đặt | Kết quả đã tạo, log, cấu hình chạy, tải xuống, selector tuỳ chỉnh, chẩn đoán |
+
+## Prompt từ ảnh (mọi trang web)
+
+- Chuột phải vào một ảnh → **AutoFlow** → **Tạo prompt từ ảnh này** / **Chọn vùng để tạo prompt** / **Thêm làm ảnh tham chiếu trong Gen** / **Thêm vào album**. Chuột phải chỗ trống → **AutoFlow: chọn vùng để tạo prompt** (kéo khung, Esc để huỷ).
+- Side panel mở hộp **Prompt từ ảnh**: chọn ChatGPT / Gemini / Grok / Claude (có trạng thái Ready), prompt cho Ảnh hay Video, English / Tiếng Việt, độ dài Ngắn / Vừa / Chi tiết, yêu cầu thêm → **Phân tích** → sửa prompt → **Đưa vào Gen** (có thể kèm ảnh làm tham chiếu), Copy, Phân tích lại.
+- Lưu 30 lượt gần nhất (**Lịch sử**). Nút **🖼 Từ ảnh** trong Gen: chọn ảnh từ máy; Shift+bấm để mở lịch sử.
+- Ảnh được lấy theo thứ tự: tải trong trang → tải bằng quyền extension → chụp đúng vùng ảnh trên màn hình (ảnh chặn tải vẫn dùng được).
+
+## Xác nhận chạy
+
+Bấm **Generate** hiện hộp **Xác nhận chạy**: số prompt (Single / Multi-Prompt), nền tảng + trạng thái tài khoản, loại, tỷ lệ, số lượng, tải xuống; với Flow chọn **Song song / Lần lượt**, **Tự gửi / Gửi tay** (AutoFlow điền prompt + ảnh tham chiếu rồi chờ bạn tự bấm Tạo), **Tải lại trang Flow trước khi chạy**. Tích "Không hỏi lại" để bỏ qua; bật lại trong Cài đặt → Chạy hàng đợi.
 
 ## Tài khoản AI (dùng hạn mức gói của bạn)
 
@@ -72,6 +84,7 @@ AutoFlow không dùng API key hay server trung gian: nó điều khiển trực 
   - Cùng số prompt và số ảnh thì ghép 1-1, khác thì mỗi prompt × mỗi ảnh
   - ChatGPT, Gemini, Grok
   - Download, Wait
+  - **Telegram**: gửi ảnh / video (kèm chú thích, `{prompt}`) hoặc văn bản về chat Telegram đã liên kết; cổng ra chuyển tiếp dữ liệu
   - Ghi chú (khung nhóm, chạy cả nhóm)
 - **Cổng có kiểu** (văn bản tím, ảnh xanh dương, video tím đậm, khung hình xanh ngọc). Nối sai kiểu hoặc tạo vòng lặp sẽ bị chặn. Thả dây ra chỗ trống để mở menu node phù hợp.
 - Thanh nổi trên node: chạy node, cấu hình, tạo nhánh, nhân bản, xoá.
@@ -96,6 +109,8 @@ node tests/test-e2e.mjs <thư-mục-extension> <thư-mục-làm-việc>
 ## Giới hạn
 
 - Trang giả lập dựng theo cấu trúc suy ra từ hành vi của TobyFlow và video hướng dẫn. **Chưa chạy trên Flow/ChatGPT/Claude/Gemini/Grok/Dreamina thật.** Selector của Claude và Dreamina là dự đoán; Dreamina chưa có trang giả lập. Có lỗi thì vào **Cài đặt → Chẩn đoán** và gửi file JSON để hiệu chỉnh.
-- Không có: Max Speed qua API (Toby Bridge), xoá watermark, template/thiết bị đồng bộ qua server.
+- TobyFlow tải selector từ máy chủ của họ lúc chạy (không nằm trong extension), nên không đối chiếu được selector; AutoFlow dùng selector tự dò + **Selector tuỳ chỉnh** + **Chẩn đoán**.
+- Trên trang Flow, AutoFlow đọc mã lỗi API (`PUBLIC_ERROR_*`: hết credit, hoạt động bất thường…) để dừng/tạm dừng ngay cả khi giao diện không báo lỗi.
+- Không có: Max Speed qua API (Toby Bridge), xoá watermark, Auto CapCut Builder (cần ứng dụng desktop), template/thiết bị/thông báo đồng bộ qua server.
 - Side panel phải mở trong lúc chạy.
 - Hãy tuân thủ điều khoản sử dụng và hạn mức của Google, OpenAI, xAI.

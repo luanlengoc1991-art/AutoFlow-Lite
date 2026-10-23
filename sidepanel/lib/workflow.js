@@ -385,6 +385,22 @@ export class WorkflowRunner {
         return {};
       }
 
+      case 'telegram': {
+        const items = inputs.media || [];
+        if (!this.telegram) throw new Error('Bot Telegram chưa sẵn sàng');
+        const st = store.settings;
+        if (!st.tgToken || !st.tgChatId) throw new Error('Chưa cấu hình Telegram (Cài đặt → AI Agent / Bot: token + /start để liên kết chat)');
+        const caption = (it) => (d.caption?.trim() ? d.caption.trim().replace(/\{prompt\}/g, it.prompt || '') : it.prompt || ctx.name);
+        for (const it of items) {
+          if (ctx.cancelled) break;
+          if (it.kind === 'text') { await this.telegram.send(it.text || ''); continue; }
+          const dataUrl = it.dataUrl || (await this.runner.mediaToDataUrl({ provider: it.provider || 'flow' }, it)).dataUrl;
+          await this.telegram.sendMedia(dataUrl, it.kind, caption(it));
+        }
+        this.log(`${node.title || 'Telegram'}: đã gửi ${items.length} mục`, 'ok');
+        return { pass: items };
+      }
+
       case 'delay': {
         const until = Date.now() + Math.max(0, +d.seconds || 0) * 1000;
         while (Date.now() < until && !ctx.cancelled) await sleep(250);

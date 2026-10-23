@@ -79,7 +79,7 @@ try {
   const setVal = (id, v) => `(()=>{const e=document.getElementById('${id}');e.value=${JSON.stringify(v)};e.dispatchEvent(new Event('input'));e.dispatchEvent(new Event('change'));})()`;
   const setSetting = (k, v) => `(()=>{const e=document.querySelector('[data-setting=${k}]');e.value=${JSON.stringify(v)};e.dispatchEvent(new Event('change'));})()`;
 
-  await P(`(async()=>{const {store,PLATFORM_DEFAULTS}=await import('./lib/store.js');for(const k of Object.keys(PLATFORM_DEFAULTS))store.settings[k]=typeof PLATFORM_DEFAULTS[k]==='boolean'?false:'';store.settings.grokMode='image';await chrome.storage.local.set({aflSettings:store.settings});return 1})()`);
+  await P(`(async()=>{const {store,PLATFORM_DEFAULTS}=await import('./lib/store.js');for(const k of Object.keys(PLATFORM_DEFAULTS))store.settings[k]=typeof PLATFORM_DEFAULTS[k]==='boolean'?false:'';store.settings.grokMode='image';store.settings.confirmRun=false;await chrome.storage.local.set({aflSettings:store.settings});return 1})()`);
   const pill = await P(`document.querySelector('#flow-status .label').textContent + '|' + document.querySelector('#flow-status').title`);
   check('side panel nhận diện tab Flow', /^Flow\|Đã kết nối/.test(pill), pill);
 
@@ -114,6 +114,22 @@ try {
   const f1 = files();
   check('file upscale được đổi tên theo mẫu', f1.filter((f) => /AutoFlow\/\d{4}-\d\d-\d\d\/00[12]_.+_[12]\.png$/.test(f)).length === 4, f1);
   check('task ghi nhận độ phân giải 2k', list.every((t) => t.results.every((r) => r.downloaded && r.resolution === '2k')), list.map((t) => t.results.map((r) => r.resolution)));
+
+  // ---- Tab Ảnh: liệt kê ảnh trong project Flow, chọn làm tham chiếu ----
+  await P(`document.querySelector('[data-tab=photos]').click()`);
+  let phCount = 0;
+  for (let i = 0; i < 20 && !phCount; i++) { await sleep(1000); phCount = await P(`document.querySelectorAll('#ph-grid .ph-item').length`); }
+  const phInfo = await P(`({ n: document.querySelectorAll('#ph-grid .ph-item').length, thumbs: document.querySelectorAll('#ph-grid .ph-item img').length })`);
+  check('Tab Ảnh: liệt kê 4 ảnh của project kèm thumbnail', phInfo.n === 4 && phInfo.thumbs === 4, phInfo);
+  await P(`(()=>{const s=document.getElementById('ph-search');s.value='lighthouse';s.dispatchEvent(new Event('input'));})()`);
+  const phFiltered = await P(`document.querySelectorAll('#ph-grid .ph-item').length`);
+  check('Tab Ảnh: tìm theo prompt', phFiltered === 2, phFiltered);
+  const refsBeforePh = await P(`(async()=>{const {store}=await import('./lib/store.js');return store.gen.refIds.length})()`);
+  await P(`(()=>{document.querySelector('#ph-grid .ph-item').click();document.querySelector('#ph-bar [data-ph=ref]').click();})()`);
+  await sleep(2500);
+  const refsAfterPh = await P(`(async()=>{const {store}=await import('./lib/store.js');const ids=store.gen.refIds;const r=ids.length;store.gen.refIds=[];store.save('gen',0);return r})()`);
+  check('Tab Ảnh: "Làm tham chiếu" thêm ảnh vào Gen', refsAfterPh === refsBeforePh + 1, { refsBeforePh, refsAfterPh });
+  await P(`(()=>{const s=document.getElementById('ph-search');s.value='';s.dispatchEvent(new Event('input'));document.querySelector('[data-tab=gen]').click();})()`);
 
   // ---- ChatGPT: tạo ảnh ----
   await P(setSetting('dlImageRes', 'original'));
@@ -159,6 +175,91 @@ try {
   const assistantText = await P(`document.getElementById('gen-text').value`);
   const parts = assistantText.split(/\n\s*\n/).filter(Boolean);
   check('Trợ lý: "Đưa vào AutoFlow" chèn 4 prompt cách nhau dòng trống', parts.length === 4 && parts.every((p) => /^Scene \d: a cinematic shot/.test(p)), parts);
+
+  // ---- Prompt từ ảnh: background giao ảnh (như menu chuột phải) → side panel hỏi ChatGPT kèm ảnh → Đưa vào Gen ----
+  const bgTarget = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.url.endsWith('/background.js'));
+  const bg = await connect(bgTarget.webSocketDebuggerUrl);
+  const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP4z8CAFWEXHbQSACj/P8Fu7N9hAAAAAElFTkSuQmCC';
+  await P(`(()=>{const t=document.getElementById('gen-text');t.value='';t.dispatchEvent(new Event('input'));})()`);
+  await bg.ev(`deliverImage('analyze', ${JSON.stringify(tinyPng)}, { url: 'https://example.com/' }).then(() => 1)`);
+  await sleep(2500);
+  const ipOpen = await P(`!!document.querySelector('dialog.image-prompt[open] .ip-image img')`);
+  check('Prompt từ ảnh: side panel mở hộp thoại với ảnh nhận từ menu chuột phải', ipOpen, ipOpen);
+  await P(`(()=>{const d=document.querySelector('dialog.image-prompt');d.querySelector('[data-set=lang][data-val=vi]').click();d.querySelector('[data-go]').click();})()`);
+  let ipResult = '';
+  for (let i = 0; i < 40 && !ipResult; i++) { await sleep(1500); ipResult = await P(`document.querySelector('dialog.image-prompt [data-insert]') ? document.querySelector('dialog.image-prompt [data-o=result]').value : ''`); }
+  const ipSent = chatPage ? (await chatPage.ev('window.chatMock.sent')).slice(-1)[0] : null;
+  check('Prompt từ ảnh: gửi ChatGPT yêu cầu tiếng Việt kèm 1 ảnh', /attached image/.test(ipSent?.text || '') && /Vietnamese/.test(ipSent.text) && ipSent.attachments === 1, ipSent);
+  check('Prompt từ ảnh: hiện prompt AI trả về', /^Here is my answer about/.test(ipResult), ipResult.slice(0, 120));
+  await P(`document.querySelector('dialog.image-prompt [data-insert-ref]').click()`);
+  await sleep(600);
+  const ipGen = await P(`(async()=>{const {store}=await import('./lib/store.js');return {text:document.getElementById('gen-text').value, refs:store.gen.refIds.length, hist:((await chrome.storage.local.get('aflImagePrompts')).aflImagePrompts||[]).length}})()`);
+  check('Prompt từ ảnh: Đưa vào Gen kèm ảnh tham chiếu + lưu lịch sử', /^Here is my answer about/.test(ipGen.text) && ipGen.refs >= 1 && ipGen.hist === 1, ipGen);
+  await P(`(async()=>{const {store}=await import('./lib/store.js');store.gen.refIds=[];store.save('gen',0);const t=document.getElementById('gen-text');t.value='';t.dispatchEvent(new Event('input'));return 1})()`);
+  await bg.ev(`deliverImage('ref', ${JSON.stringify(tinyPng)}, { url: 'https://example.com/' }).then(() => 1)`);
+  await sleep(1500);
+  const refOnly = await P(`(async()=>{const {store}=await import('./lib/store.js');return store.gen.refIds.length})()`);
+  check('Menu "Thêm làm ảnh tham chiếu": thêm ảnh vào Gen', refOnly === 1, refOnly);
+  await P(`(async()=>{const {store}=await import('./lib/store.js');store.gen.refIds=[];store.save('gen',0);return 1})()`);
+
+  // ---- Tab Ảnh → Album: tạo album, trùng tên, thêm ảnh từ menu chuột phải, dùng làm tham chiếu ----
+  await P(`(()=>{document.querySelector('[data-tab=photos]').click();document.querySelector('#ph-subtabs [data-sub=albums]').click();return 1})()`);
+  await sleep(400);
+  const albumEmpty = await P(`!document.getElementById('ph-albums').hidden && document.getElementById('ph-flow').hidden && /Chưa có album/.test(document.getElementById('ph-albums').textContent)`);
+  check('Album: tab con Album hiện, trống lúc đầu', albumEmpty, albumEmpty);
+  const mkAlbum = (name) => P(`(async()=>{document.querySelector('#ph-albums [data-act=new]').click();await new Promise(r=>setTimeout(r,200));
+    const d=document.querySelector('dialog.album-modal[open]');d.querySelector('[data-name]').value=${JSON.stringify(name)};d.querySelector('[data-ok]').click();
+    await new Promise(r=>setTimeout(r,400));const still=document.querySelector('dialog.album-modal[open]');const err=still?.querySelector('[data-err]')?.textContent||'';still?.close();return err})()`);
+  const mk1 = await mkAlbum('Nhân vật');
+  await sleep(300);
+  await P(`document.querySelector('#ph-albums [data-act=back]')?.click()`);
+  await sleep(300);
+  const mk2 = await mkAlbum('nhân vật');
+  check('Album: tạo album, tên trùng bị chặn', mk1 === '' && /đã tồn tại/.test(mk2), { mk1, mk2 });
+  await bg.ev(`deliverImage('album', ${JSON.stringify(tinyPng)}, { url: 'https://example.com/' }).then(() => 1)`);
+  let pickRow = false;
+  for (let i = 0; i < 10 && !pickRow; i++) { await sleep(400); pickRow = await P(`!!document.querySelector('dialog.album-modal[open] .album-row')`); }
+  await P(`document.querySelector('dialog.album-modal[open] .album-row')?.click()`);
+  await sleep(600);
+  const albumState = await P(`(async()=>{const a=((await chrome.storage.local.get('aflAlbums')).aflAlbums||[]);return {n:a.length,items:a[0]?.items.length,name:a[0]?.name}})()`);
+  check('Menu "Thêm vào album": chọn album, ảnh được lưu', pickRow && albumState.n === 1 && albumState.items === 1 && albumState.name === 'Nhân vật', { pickRow, albumState });
+  await P(`(async()=>{document.querySelector('#ph-albums [data-act=back]')?.click();await new Promise(r=>setTimeout(r,300));document.querySelector('#ph-albums [data-open]').click();await new Promise(r=>setTimeout(r,300));document.querySelector('#ph-albums [data-act=ref]').click();return 1})()`);
+  await sleep(500);
+  const albumRefs = await P(`(async()=>{const {store}=await import('./lib/store.js');return {refs:store.gen.refIds.length,tab:document.querySelector('.tab.active')?.dataset.tab}})()`);
+  check('Album: "Làm tham chiếu" đưa ảnh album vào Gen', albumRefs.refs === 1 && albumRefs.tab === 'gen', albumRefs);
+  await P(`(async()=>{const {store}=await import('./lib/store.js');store.gen.refIds=[];store.save('gen',0);return 1})()`);
+
+  // ---- Tab Ảnh → Tìm ảnh: chọn kênh mở trang tìm kiếm ở tab mới ----
+  await P(`(()=>{document.querySelector('[data-tab=photos]').click();document.querySelector('#ph-subtabs [data-sub=search]').click();
+    const q=document.querySelector('#ph-websearch [data-q]');q.value='red sneaker';document.querySelector('#ph-websearch [data-ch=unsplash]').click();return 1})()`);
+  let searchTab = null;
+  for (let i = 0; i < 10 && !searchTab; i++) { await sleep(500); searchTab = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.url.includes('unsplash.com/s/photos/red-sneaker')); }
+  check('Tìm ảnh: bấm kênh Unsplash mở trang tìm "red sneaker"', !!searchTab, searchTab?.url);
+  if (searchTab) await fetch(`http://127.0.0.1:${port}/json/close/${searchTab.id}`).catch(() => {});
+  await P(`(()=>{document.querySelector('#ph-subtabs [data-sub=flow]').click();document.querySelector('[data-tab=gen]').click();return 1})()`);
+
+  // ---- Xác nhận chạy + Gửi tay: AutoFlow điền prompt, chỉ gửi khi người dùng bấm Tạo trên Flow ----
+  const tasksBeforeManual = (await tasks()).length;
+  await P(`(async()=>{const {store}=await import('./lib/store.js');store.settings.confirmRun=true;store.save('settings',0);
+    document.querySelector('[data-provider=flow]').click();document.querySelector('[data-type=image]').click();
+    const t=document.getElementById('gen-text');t.value='a manual submit check';t.dispatchEvent(new Event('input'));document.getElementById('btn-generate').click();return 1})()`);
+  await sleep(1500);
+  const crTxt = await P(`document.querySelector('dialog.confirm-run[open]')?.innerText || ''`);
+  check('Xác nhận chạy: hiện tóm tắt (1 prompt, Google Flow, cách chạy / cách gửi)', /Xác nhận chạy/.test(crTxt) && /1 · Single/.test(crTxt) && /Google Flow/.test(crTxt) && /Gửi tay/.test(crTxt), crTxt.slice(0, 300));
+  const subsBeforeManual = (await flowPage.ev('window.mock.submits')).length;
+  await P(`(()=>{const d=document.querySelector('dialog.confirm-run');d.querySelector('[data-k=submit][data-v=manual]').click();d.querySelector('[data-c=noask]').checked=true;d.querySelector('[data-yes]').click();})()`);
+  let filled = '';
+  for (let i = 0; i < 30 && !/manual submit check/.test(filled); i++) { await sleep(1000); filled = await flowPage.ev('document.querySelector("[data-slate-editor]")?.textContent || ""'); }
+  await sleep(2500);
+  const manualState = { filled, subs: (await flowPage.ev('window.mock.submits')).length - subsBeforeManual, banner: await P(`document.getElementById('run-message').textContent`) };
+  check('Gửi tay: điền prompt nhưng không tự bấm Tạo, side panel nhắc bấm Tạo', /manual submit check/.test(filled) && manualState.subs === 0 && /bấm Tạo/.test(manualState.banner), manualState);
+  await flowPage.ev('document.getElementById("submit").click()');
+  list = await waitTasks(tasksBeforeManual + 1);
+  const manualTask = list.at(-1);
+  const manualSubs = (await flowPage.ev('window.mock.submits')).slice(subsBeforeManual);
+  check('Gửi tay: người dùng bấm Tạo → task chạy xong', manualSubs.length === 1 && manualSubs[0].text === 'a manual submit check' && manualTask?.status === 'done', { manualSubs, s: manualTask?.status, e: manualTask?.error });
+  const crSaved = await P(`(async()=>{const {store}=await import('./lib/store.js');const r=store.settings.submitMode+'|'+store.settings.confirmRun;store.settings.submitMode='auto';store.save('settings',0);return r})()`);
+  check('Xác nhận chạy: lưu cách gửi + "Không hỏi lại"', crSaved === 'manual|false', crSaved);
   list = await tasks();
 
   // ---- Task đã lưu + phong cách + ref Mention + dùng kết quả trước ----
@@ -632,6 +733,18 @@ try {
   for (let i = 0; i < 50; i++) { await sleep(1200); sentTg = await tgSent(); if (sentTg.some((m) => m.method === 'sendPhoto')) break; }
   const tgSubs = (await flowPage.ev('window.mock.submits')).slice(beforeTg);
   check('Telegram: /gen → Flow tạo ảnh → gửi ảnh về chat', tgSubs[0]?.text === 'a dog from telegram' && sentTg.some((m) => m.method === 'sendPhoto' && m.bytes > 1000), { tgSubs, sentTg: sentTg.map((m) => m.method + (m.text ? ':' + m.text.slice(0, 40) : '')) });
+
+  // Node Telegram trong workflow: Text → Telegram (tin nhắn), Image → Telegram (ảnh kèm chú thích)
+  const tgWfId = await P(`(async()=>{const {createNode,newWorkflow,nid}=await import('./lib/workflow-nodes.js');const {store}=await import('./lib/store.js');
+    const cv=document.createElement('canvas');cv.width=cv.height=64;cv.getContext('2d').fillRect(0,0,64,64);const png=cv.toDataURL('image/png');
+    const wf=newWorkflow('TG WF');const t=createNode('text',0,0,{text:'hello from workflow'});const im=createNode('image',0,300,{media:[{kind:'image',dataUrl:png,mime:'image/png'}]});const tg=createNode('telegram',400,0,{caption:'ảnh từ workflow'});
+    const e=(a,ap,b,bp)=>({id:nid(),from:{node:a.id,port:ap},to:{node:b.id,port:bp}});
+    wf.nodes=[t,im,tg];wf.edges=[e(t,'text',tg,'media'),e(im,'media',tg,'media')];store.workflows.push(wf);await chrome.storage.local.set({aflWorkflows:store.workflows});return wf.id})()`);
+  const sentBeforeNode = (await tgSent()).length;
+  const tgRun = await bg.ev(`chrome.runtime.sendMessage({ type: 'afl:runWorkflow', id: ${JSON.stringify(tgWfId)} })`);
+  let tgNodeSent = [];
+  for (let i = 0; i < 20; i++) { await sleep(800); tgNodeSent = (await tgSent()).slice(sentBeforeNode); if (tgNodeSent.length >= 2) break; }
+  check('Node Telegram: gửi văn bản + ảnh từ workflow về chat', tgRun?.ok && tgNodeSent.some((m) => m.method === 'sendMessage' && m.text === 'hello from workflow') && tgNodeSent.some((m) => m.method === 'sendPhoto' && m.bytes > 100), { tgRun, sent: tgNodeSent.map((m) => m.method + (m.text ? ':' + m.text : '')) });
   await P(`(async()=>{const {store}=await import('./lib/store.js');store.settings.tgEnabled=false;store.save('settings',0);return 1})()`);
 
   await P(`document.querySelector('[data-tab=queue]').click()`);

@@ -50,6 +50,12 @@ async function telegram(req, res) {
 http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET,POST' }); res.end(); return; }
   if (req.url.startsWith('/bot') || req.url.startsWith('/__tg/')) { if ((await telegram(req, res)) !== false) return; }
+  if (req.url.startsWith('/__api/generate')) {
+    const code = new URL(req.url, 'http://x').searchParams.get('code');
+    res.writeHead(429, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: { code: 429, message: 'Request failed', status: code } }));
+    return;
+  }
   if (req.url.startsWith('/asb/')) {
     if (req.url.endsWith('/video')) { res.writeHead(200, { 'content-type': 'video/mp4' }); res.end(Buffer.alloc(2048)); return; }
     res.writeHead(200, { 'content-type': 'image/png' });

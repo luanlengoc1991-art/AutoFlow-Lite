@@ -132,6 +132,12 @@ export const NODE_DEFS = {
     outs: [],
     data: { folder: '' }
   },
+  telegram: {
+    title: 'Telegram', icon: 'send', group: 'Tiện ích', desc: 'Gửi ảnh / video / văn bản về chat Telegram đã liên kết.',
+    ins: [{ name: 'media', type: 'any', multi: true, label: 'Gửi về Telegram' }],
+    outs: [{ name: 'pass', type: 'any', label: 'Chuyển tiếp' }],
+    data: { caption: '' }
+  },
   delay: {
     title: 'Wait', icon: 'delay', group: 'Tiện ích', desc: 'Chờ X giây rồi chuyển tiếp.',
     ins: [{ name: 'in', type: 'any', multi: true, label: 'Đầu vào' }],

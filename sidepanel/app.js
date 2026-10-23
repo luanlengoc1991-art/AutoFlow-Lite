@@ -8,9 +8,11 @@ import { WorkflowRunner, splitLines } from './lib/workflow.js';
 import { newWorkflow, normalizeWorkflow } from './lib/workflow-nodes.js';
 import { TEMPLATES, instantiateTemplate } from './lib/workflow-templates.js';
 import { openAssistant } from './assistant.js';
+import { openImagePrompt } from './image-prompt.js';
+import { mountAlbums, mountImageSearch, openAddToAlbum } from './albums.js';
 import { McpBridge, TelegramBot } from './lib/bridges.js';
 import { createNode, nid } from './lib/workflow-nodes.js';
-import { checkAll } from './lib/accounts.js';
+import { checkAll, checkAccount, STATE_TEXT } from './lib/accounts.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -330,10 +332,93 @@ function startQueue(n) {
 }
 // Nút + : lưu cấu hình Gen hiện tại thành task (tab Tasks).
 $('btn-add').addEventListener('click', () => saveCurrentAsTask());
-$('btn-generate').addEventListener('click', () => {
+$('btn-generate').addEventListener('click', async () => {
+  if (!buildPrompts(g()).length) { toast('Chưa có prompt'); return; }
+  const isFlow = PROVIDERS[g().provider]?.kind === 'flow';
+  if (!runner.running && store.settings.confirmRun && !(await confirmRun())) return;
   const n = addFromGen();
-  if (n) startQueue(n);
+  if (!n) return;
+  if (!runner.running && isFlow && store.settings.reloadBeforeRun) await reloadFlowTab();
+  startQueue(n);
 });
+
+// Hộp "Xác nhận chạy": tóm tắt lượt tạo, trạng thái tài khoản, cách chạy / cách gửi.
+function confirmRun() {
+  const s = g(), st = store.settings;
+  const p = PROVIDERS[s.provider];
+  const isFlow = p.kind === 'flow';
+  const prompts = buildPrompts(s).length;
+  const qty = isFlow ? (s.quantity || 1) : 1;
+  const ratio = s.ratio || (isFlow ? (s.genType === 'video' ? st.flowVideoRatio : st.flowImageRatio) : st[`${s.provider}Ratio`]) || 'như trang';
+  const seg = (key, items) => `<div class="ip-seg">${items.map(([v, label]) => `<button type="button" data-k="${key}" data-v="${v}">${label}</button>`).join('')}</div>`;
+  const o = { run: st.concurrency > 1 ? 'parallel' : 'seq', submit: st.submitMode || 'auto', reload: !!st.reloadBeforeRun, ask: true };
+  return new Promise((resolve) => {
+    const d = document.createElement('dialog');
+    d.className = 'assistant confirm-run';
+    d.innerHTML = `<div class="dlg-head"><b>Xác nhận chạy</b><button class="icon-btn" data-x>${icon('x')}</button></div>
+      <div class="cr-grid">
+        <span>Prompt</span><b>${prompts} · ${prompts > 1 ? 'Multi-Prompt' : 'Single'}</b>
+        <span>Nền tảng</span><b>${esc(p.name)} <span class="cr-acc muted">Đang kiểm tra…</span></b>
+        <span>Loại</span><b>${isFlow ? (s.genType === 'video' ? 'Video' : 'Ảnh') : (s.chatMode === 'text' ? 'Văn bản' : 'Ảnh')}</b>
+        <span>Tỷ lệ</span><b>${esc(ratio)}</b>
+        <span>Số lượng</span><b>${qty} / prompt → ${prompts * qty} kết quả</b>
+        <span>Tải xuống</span><b>${s.autoDownload !== false && st.autoDownload !== false ? `Tự tải vào ${esc(st.folder || 'AutoFlow')}` : 'Không tự tải'}</b>
+      </div>
+      ${isFlow ? `<label>Cách chạy${seg('run', [['parallel', 'Song song'], ['seq', 'Lần lượt']])}</label>
+      <label>Cách gửi${seg('submit', [['auto', 'Tự gửi'], ['manual', 'Gửi tay']])}</label>
+      <p class="muted cr-hint"></p>
+      <label class="switch line"><input type="checkbox" data-c="reload" ${o.reload ? 'checked' : ''}><span></span>Tải lại trang Flow trước khi chạy</label>` : ''}
+      <label class="switch line"><input type="checkbox" data-c="noask"><span></span>Không hỏi lại (bật lại trong Cài đặt)</label>
+      <div class="btn-row"><button class="btn" data-no>Huỷ</button><button class="btn primary" data-yes>${icon('play')}Chạy</button></div>`;
+    document.body.appendChild(d);
+    const paint = () => {
+      d.querySelectorAll('[data-k]').forEach((b) => b.classList.toggle('active', o[b.dataset.k] === b.dataset.v));
+      const hint = d.querySelector('.cr-hint');
+      if (hint) hint.textContent = o.submit === 'manual'
+        ? 'AutoFlow điền prompt + ảnh tham chiếu rồi chờ bạn tự bấm Tạo trên Flow (từng lượt một).'
+        : 'AutoFlow tự bấm Tạo sau khi điền prompt + ảnh tham chiếu.';
+    };
+    const finish = (ok) => {
+      if (ok) {
+        if (isFlow) {
+          st.concurrency = o.run === 'parallel' ? Math.max(2, st.concurrency > 1 ? st.concurrency : 3) : 1;
+          st.submitMode = o.submit;
+          st.reloadBeforeRun = d.querySelector('[data-c=reload]').checked;
+        }
+        if (d.querySelector('[data-c=noask]').checked) st.confirmRun = false;
+        store.save('settings'); renderSettings(); renderGen();
+      }
+      d.close(); d.remove(); resolve(ok);
+    };
+    d.addEventListener('cancel', () => finish(false));
+    d.addEventListener('click', (e) => {
+      const k = e.target.closest('[data-k]');
+      if (k) { o[k.dataset.k] = k.dataset.v; paint(); return; }
+      if (e.target.closest('[data-x], [data-no]')) finish(false);
+      if (e.target.closest('[data-yes]')) finish(true);
+    });
+    paint();
+    d.showModal();
+    checkAccount(s.provider).then((a) => {
+      const el = d.querySelector('.cr-acc');
+      if (el) { el.textContent = STATE_TEXT[a.state] || ''; el.className = `cr-acc st ${a.state}`; }
+    }).catch(() => {});
+  });
+}
+
+async function reloadFlowTab() {
+  const tab = await flow.findTab('flow');
+  if (!tab) return;
+  log('Tải lại trang Flow trước khi chạy');
+  await chrome.tabs.reload(tab.id);
+  await new Promise((resolve) => {
+    const timer = setTimeout(done, 30000);
+    function done() { clearTimeout(timer); chrome.tabs.onUpdated.removeListener(on); resolve(); }
+    function on(id, info) { if (id === tab.id && info.status === 'complete') done(); }
+    chrome.tabs.onUpdated.addListener(on);
+  });
+  await new Promise((r) => setTimeout(r, 2500));
+}
 
 // ---------- Nhân vật & phong cách ----------
 function openPicker(title, bodyHtml, onReady) {
@@ -709,6 +794,128 @@ $('hist-list').addEventListener('click', async (e) => {
   }
 });
 
+// ---------- Ảnh trong Flow (ảnh/video của project đang mở) ----------
+const photos = { items: [], kind: '', selected: new Set(), loading: false };
+function renderPhotos() {
+  const q = $('ph-search').value.trim().toLowerCase();
+  const list = photos.items.filter((p) => (!photos.kind || p.kind === photos.kind) && (!q || p.prompt.toLowerCase().includes(q)));
+  $('ph-total').textContent = photos.items.length ? `${list.length}/${photos.items.length}` : '';
+  $('ph-empty').hidden = list.length > 0;
+  if (photos.items.length && !list.length) $('ph-empty').textContent = 'Không có mục phù hợp.';
+  $('ph-grid').innerHTML = list.map((p) => `<button class="ph-item ${photos.selected.has(p.key) ? 'sel' : ''}" data-key="${esc(p.key)}" title="${esc(p.prompt)}">
+      ${p.thumb ? `<img src="${p.thumb}" alt="">` : `<span class="ph">${icon(p.kind === 'video' ? 'video' : 'image')}</span>`}
+      ${p.kind === 'video' ? `<i class="ph-kind">${icon('video')}</i>` : ''}<span class="ph-check">✓</span></button>`).join('');
+  $('ph-bar').hidden = photos.selected.size === 0;
+  $('ph-count').textContent = `${photos.selected.size} đã chọn`;
+  $('ph-filter').querySelectorAll('[data-kind]').forEach((b) => b.classList.toggle('on', b.dataset.kind === photos.kind));
+}
+async function loadPhotos() {
+  if (photos.loading) return;
+  photos.loading = true;
+  $('ph-load').disabled = true;
+  $('ph-empty').hidden = false;
+  $('ph-empty').textContent = 'Đang đọc thư viện Flow…';
+  try {
+    const { tab } = await flow.ready('flow');
+    const r = await flow.send(tab.id, { type: 'afl:listMedia', opts: { scroll: true } });
+    if (!r?.ok) throw new Error(r?.error || 'Không đọc được thư viện Flow');
+    photos.items = r.items;
+    photos.selected.clear();
+    $('ph-empty').textContent = 'Project này chưa có ảnh/video nào.';
+    log(`Tab Ảnh: ${r.items.length} mục từ Flow`);
+  } catch (e) {
+    $('ph-empty').textContent = e.message;
+  } finally {
+    photos.loading = false;
+    $('ph-load').disabled = false;
+    renderPhotos();
+  }
+}
+$('ph-load').addEventListener('click', loadPhotos);
+$('ph-search').addEventListener('input', renderPhotos);
+$('ph-filter').addEventListener('click', (e) => { const b = e.target.closest('[data-kind]'); if (b) { photos.kind = b.dataset.kind; renderPhotos(); } });
+$('ph-grid').addEventListener('click', (e) => {
+  const key = e.target.closest('[data-key]')?.dataset.key;
+  if (!key) return;
+  photos.selected.has(key) ? photos.selected.delete(key) : photos.selected.add(key);
+  renderPhotos();
+});
+document.querySelector('[data-tab=photos]').addEventListener('click', () => { if (phSub === 'flow' && !photos.items.length) loadPhotos(); });
+$('ph-bar').addEventListener('click', async (e) => {
+  const act = e.target.closest('[data-ph]')?.dataset.ph;
+  if (!act) return;
+  const picked = photos.items.filter((p) => photos.selected.has(p.key));
+  if (act === 'clear') { photos.selected.clear(); renderPhotos(); return; }
+  if (act === 'dl') {
+    try {
+      const { tab } = await flow.ready('flow');
+      let ok = 0;
+      for (let i = 0; i < picked.length; i++) {
+        const p = picked[i];
+        const fake = { index: i + 1, prompt: p.prompt || 'flow', provider: 'flow', genType: p.kind, createdAt: Date.now() };
+        if ((await runner.download(tab.id, fake, p, 1)).downloaded) ok++;
+      }
+      toast(`Đã tải ${ok}/${picked.length} file`);
+    } catch (err) { toast(err.message); }
+    return;
+  }
+  const images = picked.filter((p) => p.kind === 'image');
+  if (!images.length) { toast('Chọn ít nhất một ảnh (video không dùng được ở đây)'); return; }
+  try {
+    if (act === 'ref') {
+      for (const p of images) {
+        const { dataUrl, mime } = await runner.mediaToDataUrl({ provider: 'flow' }, p);
+        g().refIds.push(store.addRef({ name: 'flow.png', mime, dataUrl }));
+      }
+      saveGen(); renderRefs(); showTab('gen');
+      toast(`Đã thêm ${images.length} ảnh tham chiếu`);
+    }
+    if (act === 'prompt') {
+      const { dataUrl } = await runner.mediaToDataUrl({ provider: 'flow' }, images[0]);
+      showImagePrompt(dataUrl);
+    }
+    if (act === 'album') {
+      const list = [];
+      for (const p of images) list.push({ name: 'flow.png', ...(await runner.mediaToDataUrl({ provider: 'flow' }, p)) });
+      if (await openAddToAlbum({ images: list, toast })) { photos.selected.clear(); renderPhotos(); }
+    }
+  } catch (err) { toast(err.message); }
+});
+
+// ---------- Album + Tìm ảnh (module albums.js) ----------
+let phSub = 'flow';
+function useAlbumRefs(items) {
+  for (const i of items) g().refIds.push(store.addRef({ name: i.name, mime: i.mime, dataUrl: i.dataUrl }));
+  saveGen(); renderRefs(); showTab('gen');
+  toast(`Đã thêm ${items.length} ảnh tham chiếu`);
+}
+const albumsView = mountAlbums($('ph-albums'), {
+  toast, log,
+  onUseRefs: useAlbumRefs,
+  onPrompt: (dataUrl) => showImagePrompt(dataUrl),
+  onDownload: async (album, items) => {
+    let ok = 0;
+    for (let i = 0; i < items.length; i++) {
+      const ext = (items[i].mime.split('/')[1] || 'png').replace('jpeg', 'jpg');
+      const base = items[i].name.replace(/\.[a-z0-9]{2,5}$/i, '') || `anh_${i + 1}`;
+      const r = await chrome.runtime.sendMessage({ type: 'afl:download', url: items[i].dataUrl, filename: `${store.settings.folder || 'AutoFlow'}/Album/${album.name}/${String(i + 1).padStart(2, '0')}_${base}.${ext}` });
+      if (r?.ok) ok++;
+    }
+    toast(`Đã tải ${ok}/${items.length} ảnh`);
+  }
+});
+mountImageSearch($('ph-websearch'), { toast, log });
+function showPhotosSub(sub) {
+  phSub = sub;
+  document.querySelectorAll('#ph-subtabs [data-sub]').forEach((b) => b.classList.toggle('active', b.dataset.sub === sub));
+  $('ph-flow').hidden = sub !== 'flow';
+  $('ph-albums').hidden = sub !== 'albums';
+  $('ph-websearch').hidden = sub !== 'search';
+  if (sub === 'albums') albumsView.render();
+  if (sub === 'flow' && !photos.items.length) loadPhotos();
+}
+document.querySelectorAll('#ph-subtabs [data-sub]').forEach((b) => b.addEventListener('click', () => showPhotosSub(b.dataset.sub)));
+
 // ---------- Thư viện prompt ----------
 function libMatches(q) { return store.library.filter((p) => !q || `${p.title} ${p.text}`.toLowerCase().includes(q)); }
 function libItem(p, actions) {
@@ -873,6 +1080,47 @@ $('btn-assistant').addEventListener('click', () => openAssistant({
     toast(`Đã đưa ${prompts.length} prompt vào Gen`);
   }
 }));
+
+// ---------- Prompt từ ảnh (module image-prompt.js; ảnh đến từ menu chuột phải qua background) ----------
+function showImagePrompt(image) {
+  openImagePrompt({
+    image, toast, log,
+    ask: (provider, prompt, extra) => wfRunner.ask(provider, prompt, extra),
+    onInsert: (prompt, kind, refImage) => {
+      const s = g();
+      if (s.provider === 'flow' && kind) s.genType = kind;
+      s.split = 'blank';
+      s.text = [s.text.trim(), prompt].filter(Boolean).join('\n\n');
+      if (refImage) s.refIds.push(store.addRef({ name: `anh_${Date.now()}.png`, mime: 'image/png', dataUrl: refImage }));
+      saveGen(); renderGen(); showTab('gen');
+      toast(refImage ? 'Đã đưa prompt và ảnh tham chiếu vào Gen' : 'Đã đưa prompt vào Gen');
+    }
+  });
+}
+$('btn-image-prompt').addEventListener('click', (e) => {
+  // Shift+bấm: chỉ mở lịch sử.
+  if (e.shiftKey) { showImagePrompt(null); return; }
+  const input = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*' });
+  input.addEventListener('change', async () => { if (input.files[0]) showImagePrompt(await readFile(input.files[0])); });
+  input.click();
+});
+async function takeImageIntent() {
+  const { aflImageIntent: it } = await chrome.storage.session.get('aflImageIntent');
+  if (!it) return;
+  await chrome.storage.session.remove('aflImageIntent');
+  if (Date.now() - it.at > 120000 || !it.dataUrl) return;
+  if (it.action === 'ref') {
+    g().refIds.push(store.addRef({ name: `anh_${Date.now()}.png`, mime: it.dataUrl.slice(5, it.dataUrl.indexOf(';')) || 'image/png', dataUrl: it.dataUrl }));
+    saveGen(); renderRefs(); showTab('gen');
+    toast('Đã thêm ảnh tham chiếu');
+  } else if (it.action === 'album') {
+    showTab('photos'); showPhotosSub('albums');
+    await openAddToAlbum({ images: [{ name: `anh_${Date.now()}.png`, mime: it.dataUrl.slice(5, it.dataUrl.indexOf(';')) || 'image/png', dataUrl: it.dataUrl }], toast });
+  } else {
+    showImagePrompt(it.dataUrl);
+  }
+}
+chrome.runtime.onMessage.addListener((msg) => { if (msg?.type === 'afl:imageIntent') takeImageIntent(); });
 
 // ---------- Workflow ----------
 let wfSub = 'templates';
@@ -1269,6 +1517,7 @@ const telegram = new TelegramBot({
     return 'Không hiểu lệnh. Gửi /help';
   }
 });
+wfRunner.telegram = telegram; // node Telegram trong workflow
 // Gửi kết quả của lệnh Telegram về chat.
 runner.onSettled(async (t) => {
   if (t.source !== 'telegram' || !store.settings.tgEnabled) return;
@@ -1330,6 +1579,7 @@ function applyGenDefaults() {
   mcp.start();
   telegram.start();
   showTab('gen');
+  takeImageIntent();
   refreshFlowStatus();
   setInterval(refreshFlowStatus, 4000);
   setInterval(() => { if (store.tasks.some((t) => t.retryAt > Date.now())) renderTasks(); }, 1000);

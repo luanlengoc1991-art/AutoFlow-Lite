@@ -600,6 +600,15 @@
     return { ok: true };
   }
 
+  // Gửi tay: prompt + ảnh đã điền sẵn, chờ người dùng tự bấm Tạo (ô nhập đổi / xuất hiện tiến độ).
+  async function waitManualSubmit(timeout = 600000) {
+    const before = norm(editorText(findEditor()));
+    const markers = progressMarkers().length;
+    findEditor()?.scrollIntoView({ block: 'center' });
+    const sent = await waitFor(() => norm(editorText(findEditor())) !== before || progressMarkers().length > markers, timeout, 300);
+    return sent ? { ok: true } : { ok: false, error: 'Chưa bấm Tạo trên Flow (hết thời gian chờ gửi tay)' };
+  }
+
   // ---------- Kết quả (tile) ----------
   const MEDIA_RE = /\/asb\/|googleusercontent\.com|storage\.googleapis\.com|^blob:/;
   function mediaKey(url) {
@@ -682,6 +691,21 @@
     return null;
   }
 
+  // Mã lỗi API do page-bridge bắt được (PUBLIC_ERROR_*), dùng khi Flow không hiện lỗi trên giao diện.
+  const netErrors = [];
+  window.addEventListener('message', (e) => {
+    if (e.source !== window || e.data?.src !== 'afl-net') return;
+    for (const code of e.data.codes || []) netErrors.push({ code, status: e.data.status, at: e.data.at || Date.now() });
+    if (netErrors.length > 50) netErrors.splice(0, netErrors.length - 50);
+  });
+  function classifyNetError(code) {
+    if (/QUOTA|CREDIT/.test(code)) return { category: 'quota', text: 'Flow báo hết credit / hạn mức' };
+    if (/UNUSUAL_ACTIVITY|RECAPTCHA|CAPTCHA/.test(code)) return { category: 'captcha', text: 'Flow phát hiện hoạt động bất thường, cần xác minh' };
+    if (/SAFETY|POLICY|PROHIBITED|MINOR|CHILD|PERSON|CELEBRITY/.test(code)) return { category: 'policy', text: 'Flow từ chối vì chính sách nội dung' };
+    if (/RATE|TOO_MANY|RESOURCE_EXHAUSTED|THROTTL/.test(code)) return { category: 'rate_limit', text: 'Flow đang giới hạn tốc độ' };
+    return { category: 'error', text: 'Flow báo lỗi' };
+  }
+
   // ---------- Theo dõi job ----------
   const jobs = new Map();
   const claimed = new Map(); // mediaKey -> token
@@ -742,6 +766,12 @@
     const elapsed = now - job.startedAt;
     const newToasts = toastTexts().filter((t) => !job.before.toasts.has(t));
     const toastCat = newToasts.map((t) => ({ t, c: classifyError(t) })).find((x) => x.c);
+    const net = netErrors.find((e) => e.at >= job.startedAt);
+    if (net && results.length === 0 && markers.length === 0) {
+      const { category, text } = classifyNetError(net.code);
+      job.done = true;
+      return { status: 'failed', progress: null, pending: 0, results: [], errors: [], error: `${text} (${net.code})`, category };
+    }
 
     const base = { progress: pct.length ? Math.max(...pct) : null, pending: markers.length, results: results.map(({ key, url, kind, poster }) => ({ key, url, kind, poster })), errors: errors.map((e) => e.text) };
     let status = 'running';
@@ -798,6 +828,43 @@
     }
     jobs.delete(token);
     return out;
+  }
+
+  // Tab Ảnh: liệt kê ảnh/video đang có trong project (cuộn thư viện để Flow nạp thêm), kèm thumbnail.
+  function scrollParentOf(el) {
+    for (let p = el?.parentElement; p && p !== document.body; p = p.parentElement) {
+      const oy = getComputedStyle(p).overflowY;
+      if (/(auto|scroll)/.test(oy) && p.scrollHeight > p.clientHeight + 20) return p;
+    }
+    return document.scrollingElement;
+  }
+  async function listProjectMedia({ scroll = true, maxSteps = 20 } = {}) {
+    const seen = new Map();
+    const collect = () => {
+      let added = 0;
+      for (const m of mediaElements()) {
+        if (seen.has(m.key)) continue;
+        const tile = tileOf(m.el);
+        const isVideo = m.kind === 'video' || !!tile.querySelector('video');
+        seen.set(m.key, { key: m.key, url: m.src, kind: isVideo ? 'video' : 'image', poster: isVideo ? (m.kind === 'video' ? m.el.poster || '' : m.src) : '', prompt: norm(tile.textContent).slice(0, 400), thumb: thumbOf(m.src) });
+        added++;
+      }
+      return added;
+    };
+    collect();
+    if (scroll && seen.size) {
+      const sc = scrollParentOf(mediaElements()[0]?.el);
+      const start = sc.scrollTop;
+      for (let i = 0; i < maxSteps; i++) {
+        const before = sc.scrollTop;
+        sc.scrollBy(0, Math.max(200, sc.clientHeight * 0.9));
+        await sleep(700);
+        const added = collect();
+        if (!added && Math.abs(sc.scrollTop - before) < 5) break;
+      }
+      sc.scrollTop = start;
+    }
+    return [...seen.values()];
   }
 
   // ---------- Project ----------
@@ -1006,6 +1073,7 @@
         editor: !!findEditor(), submit: !!findSubmit(), settings: !!findSettingsButton(),
         settingsPanel: !!findSettingsPanel(), composerSettings: readComposerSettings()
       },
+      netErrors: netErrors.slice(-10),
       composer: list(composer()),
       panels: openPanels().map((p) => ({ panel: describe(p), items: list(p) })),
       media: mediaElements().slice(0, 30).map((m) => ({ kind: m.kind, key: m.key, src: m.src.slice(0, 160) })),
@@ -1059,7 +1127,7 @@
 
   window.AFLDriver = {
     setOverrides, findEditor, findSubmit, findSettingsButton, readComposerSettings, inProject, ensureProject,
-    applySettings, scrapeOptions, closePanels, setPrompt, clearRefs, attachRefs, submit,
+    applySettings, scrapeOptions, closePanels, setPrompt, clearRefs, attachRefs, submit, waitManualSubmit, listProjectMedia,
     startJob, pollJob, finalizeJob, classifyError, diagnose, fetchMedia, toastTexts,
     parseMentions, selectComponent, scrapeComponents, downloadViaMenu, lastFrame, account
   };

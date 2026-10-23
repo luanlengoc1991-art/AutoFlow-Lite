@@ -38,6 +38,10 @@ export const DEFAULT_SETTINGS = {
   timeoutMin: 10,
   retries: 2,
   stopOnError: false,
+  // Hộp xác nhận trước khi chạy: gửi tự động / gửi tay, tải lại trang Flow trước khi chạy.
+  confirmRun: true,
+  submitMode: 'auto',
+  reloadBeforeRun: false,
   notify: true,
   folder: 'AutoFlow',
   pattern: '[Date]/[Index]_[Prompt]_[N]',

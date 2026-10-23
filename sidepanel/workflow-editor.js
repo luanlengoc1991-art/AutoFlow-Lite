@@ -20,6 +20,7 @@ const mediaInfo = new Map(); // url -> "1520 × 2688" / "00:05"
 
 // ---------- Biểu tượng ----------
 const I = {
+  send: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M21 3L3 10.5l7 2.5 2.5 7z"/><path d="M21 3L10 13"/></svg>',
   image: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
   video: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M22 8l-6 4 6 4z"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>',
   text: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7V5h16v2M12 5v14M9 19h6"/></svg>',
@@ -344,6 +345,8 @@ function bodyHtml(n) {
         ${peekHtml(n)}<div class="chips"><span class="chip">Image</span><span class="chip toggle ${d.newChat !== false ? 'on' : ''}" data-toggle="newChat">Chat mới</span><span class="chip gear" data-act="config">${I.gear}</span></div>`;
     case 'download':
       return `<div class="nb-small">${I.download} Thư mục: <b>${esc(d.folder || '(theo workflow)')}</b><span class="chip gear" data-act="config">${I.gear}</span></div>`;
+    case 'telegram':
+      return `<div class="nb-small">${I.send} Gửi về chat đã liên kết<span class="chip gear" data-act="config">${I.gear}</span></div>`;
     case 'delay':
       return `<div class="nb-small">${I.delay} Chờ <input type="number" min="0" max="3600" data-k="seconds" value="${esc(d.seconds)}"> giây</div>`;
     default:
@@ -1290,7 +1293,7 @@ function openAddMenu(x, y, opts = {}) {
     const ports = portsOf(probe, pending.dir === 'out' ? 'in' : 'out');
     return ports.some((p) => (pending.dir === 'out' ? canConnect(pending.type, portType(probe, p)) : canConnect(portType(probe, p), pending.type)));
   };
-  const ORDER = ['image', 'text', 'prompt', 'assistant', 'list', 'generate', 'seedance', 'chatgpt', 'grok', 'gemini', 'download', 'extract', 'delay', 'note'];
+  const ORDER = ['image', 'text', 'prompt', 'assistant', 'list', 'generate', 'seedance', 'chatgpt', 'grok', 'gemini', 'download', 'telegram', 'extract', 'delay', 'note'];
   const all = ORDER.filter((t) => NODE_DEFS[t] && fits(t) && !(pending && t === 'note'));
   let active = 0, shown = all;
   const render = () => {
@@ -1549,6 +1552,9 @@ function configFields(n) {
     case 'download':
       return `<div class="field"><span class="lbl">Thư mục con (tuỳ chọn)</span><input class="inp" data-d="folder" value="${esc(d.folder)}" placeholder="để trống = AutoFlow/${esc(wf.name)}"></div>
         <p class="hint">Bản ảnh/video tải về theo cài đặt độ phân giải trong side panel (bản gốc hoặc upscale).</p>`;
+    case 'telegram':
+      return `<div class="field"><span class="lbl">Chú thích (tuỳ chọn, dùng {prompt})</span><input class="inp" data-d="caption" value="${esc(d.caption)}" placeholder="để trống = prompt của kết quả"></div>
+        <p class="hint">Ảnh / video gửi kèm chú thích, văn bản gửi thành tin nhắn. Cần token bot và chat đã liên kết (/start) trong Cài đặt → AI Agent / Bot. Cổng ra chuyển tiếp nguyên dữ liệu cho node sau.</p>`;
     case 'delay':
       return `<div class="field"><span class="lbl">Số giây chờ</span><input class="inp" type="number" min="0" max="3600" data-d="seconds" value="${esc(d.seconds)}"></div>`;
     case 'note':

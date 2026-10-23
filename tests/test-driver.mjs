@@ -26,7 +26,7 @@ await send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 900, dev
 await send('Page.navigate', { url: 'http://127.0.0.1:8765/project/0b6f4c1e-1111-4222-8333-944455556666' });
 for (let i = 0; i < 40 && !(await ev('!!document.querySelector("[data-slate-editor]")').catch(() => false)); i++) await sleep(500);
 
-await ev(fs.readFileSync(path.join(extDir, 'page-bridge.js'), 'utf8'));
+await ev(fs.readFileSync(path.join(extDir, 'page-bridge.js'), 'utf8').replace("'labs.google'", "'127.0.0.1'"));
 await ev(fs.readFileSync(path.join(extDir, 'content/flow-driver.js'), 'utf8'));
 
 let pass = 0, fail = 0;
@@ -86,6 +86,12 @@ try {
   const j4 = await runJob({ prompt: 'QUOTA test', genType: 'image', quantity: 1 });
   check('phát hiện hết credit (toast)', j4.r?.status === 'failed' && j4.r.category === 'quota', { r: j4.r, sub: j4.sub, toasts: await ev(`${D}.toastTexts()`), last: await ev('window.mock.submits.at(-1)') });
 
+  // Lỗi chỉ có trong phản hồi API (page-bridge bắt mã PUBLIC_ERROR_*), không chờ hết 2 phút
+  const j5 = await runJob({ prompt: 'NET_USER_QUOTA_REACHED test', genType: 'image', quantity: 1 }, 8000);
+  check('phát hiện hết credit qua phản hồi API', j5.r?.status === 'failed' && j5.r.category === 'quota' && /PUBLIC_ERROR_USER_QUOTA_REACHED/.test(j5.r.error), j5.r);
+  const j6 = await runJob({ prompt: 'NET_UNUSUAL_ACTIVITY test', genType: 'image', quantity: 1 }, 8000);
+  check('hoạt động bất thường qua API → cần xác minh (captcha)', j6.r?.status === 'failed' && j6.r.category === 'captcha', j6.r);
+
   // Nhân vật / giọng nói
   const comps = await ev(`${D}.scrapeComponents()`);
   check('đồng bộ nhân vật (cuộn hết danh sách) + giọng', comps.characters.length === 17 && comps.characters[0] === 'Mèo Cam' && comps.voices.join('|') === 'Giọng Nam Trầm|Giọng Nữ Trẻ', comps);
@@ -113,8 +119,10 @@ try {
   check('xoá ảnh tham chiếu + nhân vật/giọng', (await ev('window.mock.refs')) === 0 && (await ev('window.mock.chars.length + window.mock.voices.length')) === 0, await ev('({refs: window.mock.refs, chars: window.mock.chars})'));
 
   // Model không tồn tại → lỗi có danh sách
-  const bad = await ev(`(async()=>{try{await ${D}.applySettings({genType:'image',model:'Midjourney'});return 'no-error'}catch(e){return e.message}})()`);
-  check('model không có → báo lỗi kèm danh sách', /MODEL_NOT_FOUND.*Nano Banana 2/.test(bad), bad);
+  const bad = await ev(`(async()=>{try{await ${D}.applySettings({genType:'image',model:'Midjourney',modelStrict:true});return 'no-error'}catch(e){return e.message}})()`);
+  check('model task chọn không có → báo lỗi kèm danh sách', /MODEL_NOT_FOUND.*Nano Banana 2/.test(bad), bad);
+  const soft = await ev(`(async()=>{try{return (await ${D}.applySettings({genType:'image',model:'Midjourney'})).warnings}catch(e){return e.message}})()`);
+  check('model mặc định không có → chỉ cảnh báo', Array.isArray(soft) && soft.some((w) => /Midjourney/.test(w)), soft);
 
   const diag = await ev(`${D}.diagnose()`);
   check('chẩn đoán xuất được cấu trúc', diag.found.editor && diag.found.submit && diag.composer.length > 3, diag.found);

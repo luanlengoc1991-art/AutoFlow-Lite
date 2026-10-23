@@ -231,6 +231,9 @@ $('#submit').addEventListener('click', () => {
   if (!text) return;
   state.submits.push({ text, mode: state.mode, vmode: state.vmode, ratio: state.ratio, qty: state.qty, model: state.model, duration: state.duration, refs: state.refs, chars: [...state.chars], voices: [...state.voices] });
   Transforms.delete(editor, { at: { anchor: Editor.start(editor, []), focus: Editor.end(editor, []) } });
+  // Lỗi chỉ có trong phản hồi API, giao diện không hiện gì (như Flow thật đôi khi).
+  const net = /NET_(\w+)/.exec(text);
+  if (net) { fetch(`/__api/generate?code=PUBLIC_ERROR_${net[1]}`); return; }
   if (/QUOTA/.test(text)) {
     const t = document.createElement('div');
     t.setAttribute('data-sonner-toast', '');
