@@ -67,7 +67,7 @@ export function nodesInNote(wf, note) {
 
 const preview = (items, max = 24) => items.slice(0, max).map((it) => (it.kind === 'text'
   ? { kind: 'text', text: it.text.slice(0, 2000) }
-  : { kind: it.kind, thumb: it.thumb || '', url: it.url || '', provider: it.provider || '' }));
+  : { kind: it.kind, thumb: it.thumb || '', url: it.url || '', provider: it.provider || '', ...(it.prompt ? { prompt: String(it.prompt).slice(0, 1000) } : {}) }));
 
 // Mục của node List được lưu lại vào node (để sửa tay rồi chạy tiếp các node phía sau).
 const MAX_LIST = 200;
@@ -221,6 +221,7 @@ export class WorkflowRunner {
         if (!request) throw new Error('Chưa có yêu cầu cho Assistant');
         const wantList = d.exportAs === 'list';
         const ask = wantList ? `${request}\n\nReturn only the items, one per line, without numbering or extra text.` : request;
+        if (ctx.nodeState) ctx.nodeState.info = { provider, prompts: [request.slice(0, 4000)], refs: refIds.length };
         const answer = await this.ask(provider, ask, { refIds, workflowRun: ctx.runId });
         const lines = wantList ? splitLines(answer) : [answer.trim()];
         return { text: lines.filter(Boolean).map((text) => ({ kind: 'text', text })) };
@@ -278,7 +279,14 @@ export class WorkflowRunner {
           return this.enqueue({ ...common, provider: node.type, chatMode: 'image', newChat: d.newChat !== false });
         });
         const st = ctx.nodeState;
-        if (st) Object.assign(st, { total: tasks.length, done: 0 });
+        if (st) {
+          Object.assign(st, { total: tasks.length, done: 0 });
+          // Thông tin lượt chạy cho tab "Kết quả" của trình soạn.
+          st.info = {
+            provider: tasks[0]?.provider || node.type, genType: isVideo ? 'video' : 'image', model: d.model || '', ratio: d.ratio || '', duration: isVideo ? d.duration || '' : '',
+            videoMode: node.type === 'generate' && isVideo ? d.videoMode : '', prompts: jobs.slice(0, 20).map((j) => j.prompt.slice(0, 4000)), refs: jobs[0]?.refIds.length || 0
+          };
+        }
         this.onUpdate();
         await this.waitTasks(tasks, (done) => { if (st) st.done = done; });
         const media = [];

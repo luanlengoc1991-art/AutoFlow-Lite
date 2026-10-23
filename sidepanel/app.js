@@ -965,11 +965,31 @@ async function openEditor(id) {
 }
 
 let wfDone = Promise.resolve();
+// Lượt chạy chờ tới lượt (bấm chạy node khi đang có lượt khác): chạy lần lượt, kết quả cũ vẫn hiển thị.
+const wfQueue = [];
+function broadcastQueue() {
+  chrome.runtime.sendMessage({ type: 'afl:workflowQueue', queue: wfQueue }).catch(() => {});
+}
+async function runNextQueued() {
+  const next = wfQueue.shift();
+  broadcastQueue();
+  if (!next) return;
+  // Đọc lại workflow lúc tới lượt (người dùng có thể đã sửa trong lúc chờ).
+  const { aflWorkflows = [] } = await chrome.storage.local.get('aflWorkflows');
+  store.workflows = aflWorkflows;
+  runWorkflow(next.id, next.only).catch((e) => { log(`Workflow lỗi: ${e.message}`, 'error'); runNextQueued(); });
+}
 async function runWorkflow(id, only) {
   const raw = store.workflows.find((x) => x.id === id);
   if (!raw) throw new Error('Không tìm thấy workflow');
   const w = normalizeWorkflow(raw);
   if (w.enabled === false) throw new Error('Workflow đang tắt');
+  if (wfRunner.state?.running) {
+    wfQueue.push({ id, only: only?.length ? only : null });
+    broadcastQueue();
+    log(`Workflow "${w.name}": đã vào hàng đợi (${wfQueue.length}), sẽ tự chạy khi tới lượt`);
+    return { queued: wfQueue.length };
+  }
   showTab('workflow');
   wfDone = wfRunner.run(w, { only }).then(async () => {
     // Lưu kết quả để trình soạn hiển thị lại khi mở.
@@ -978,7 +998,7 @@ async function runWorkflow(id, only) {
     if (cur && wfRunner.state) {
       cur.results = { ...(cur.results || {}) };
       for (const [nodeId, s] of Object.entries(wfRunner.state.nodes)) {
-        cur.results[nodeId] = { status: s.status, count: s.count, error: s.error || '', preview: s.preview || [] };
+        cur.results[nodeId] = { status: s.status, count: s.count, error: s.error || '', preview: s.preview || [], info: s.info || null, startedAt: s.startedAt || 0, finishedAt: s.finishedAt || 0 };
         // Node List giữ các mục vừa nhận để sửa tay và chạy lại các node phía sau.
         const node = s.listItems && cur.nodes?.find((n) => n.id === nodeId);
         if (node) Object.assign(node.data, { items: s.listItems, ...(s.listKind ? { kind: s.listKind } : {}) });
@@ -988,7 +1008,9 @@ async function runWorkflow(id, only) {
       store.workflows = aflWorkflows;
       await saveWorkflows();
     }
-  }).catch((e) => { log(`Workflow lỗi: ${e.message}`, 'error'); toast(e.message); });
+  }).catch((e) => { log(`Workflow lỗi: ${e.message}`, 'error'); toast(e.message); })
+    .finally(() => { if (!wfRunner.state?.running) runNextQueued(); });
+  return { queued: 0 };
 }
 
 async function useTemplateWorkflow(wf) {
@@ -1079,14 +1101,14 @@ $('wf-list').addEventListener('click', async (e) => {
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type === 'afl:getWorkflowState') { sendResponse({ ok: true, state: wfRunner.state }); return false; }
-  if (msg?.type === 'afl:stopWorkflow') { wfRunner.cancel(); sendResponse({ ok: true }); return false; }
+  if (msg?.type === 'afl:getWorkflowState') { sendResponse({ ok: true, state: wfRunner.state, queue: wfQueue }); return false; }
+  // Dừng: huỷ cả các lượt đang chờ.
+  if (msg?.type === 'afl:stopWorkflow') { wfQueue.length = 0; broadcastQueue(); wfRunner.cancel(); sendResponse({ ok: true }); return false; }
   if (msg?.type !== 'afl:runWorkflow') return false;
   chrome.storage.local.get('aflWorkflows').then(({ aflWorkflows = [] }) => {
     store.workflows = aflWorkflows;
     renderWorkflows();
-    if (wfRunner.state?.running) { sendResponse({ ok: false, error: 'Đang chạy một workflow khác' }); return; }
-    runWorkflow(msg.id, msg.only).then(() => sendResponse({ ok: true }), (e) => sendResponse({ ok: false, error: e.message }));
+    runWorkflow(msg.id, msg.only).then((r) => sendResponse({ ok: true, queued: r?.queued || 0 }), (e) => sendResponse({ ok: false, error: e.message }));
   });
   return true;
 });

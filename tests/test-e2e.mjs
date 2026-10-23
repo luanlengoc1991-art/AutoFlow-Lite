@@ -469,6 +469,24 @@ try {
   for (let i = 0; i < 40; i++) { await sleep(1500); adState = await P(`document.getElementById('wf-run').innerText`); if (/Ad WF[\s\S]*đã kết thúc/.test(adState) && !/đang chạy/.test(adState)) break; }
   const editSubs = (await flowPage.ev('window.mock.submits')).slice(beforeEdit);
   check('chạy node sửa: Flow nhận đúng 1 lượt (yêu cầu sửa + ảnh cần sửa), node cũ không chạy lại', editSubs.length === 1 && editSubs[0].text === 'Change the sneaker to red' && editSubs[0].refs === 1, { editSubs, adState });
+  // Hàng đợi: đang chạy node ảnh (2 mục) thì bấm chạy node sửa → vào hàng chờ, hiện "Đang chờ", tự chạy sau.
+  const beforeQ = (await flowPage.ev('window.mock.submits')).length;
+  const q1 = await adEd.ev(`chrome.runtime.sendMessage({type:'afl:runWorkflow', id:'wfad', only:['g1']})`);
+  await sleep(300);
+  const q2 = await adEd.ev(`chrome.runtime.sendMessage({type:'afl:runWorkflow', id:'wfad', only:[${JSON.stringify(editIds.gen)}]})`);
+  await sleep(600);
+  const qPill = await adEd.ev(`document.querySelector('.node[data-node=${editIds.gen}] .queued-pill')?.textContent || ''`);
+  for (let i = 0; i < 60; i++) { await sleep(1500); const subsNow = (await flowPage.ev('window.mock.submits')).length - beforeQ; adState = await P(`document.getElementById('wf-run').innerText`); if (subsNow >= 3 && /đã kết thúc/.test(adState)) break; }
+  const qSubs = (await flowPage.ev('window.mock.submits')).slice(beforeQ);
+  check('hàng đợi: node bấm chạy khi đang chạy được xếp hàng, hiện "Đang chờ", rồi tự chạy', q1?.ok && !q1.queued && q2?.ok && q2.queued === 1 && /Đang chờ/.test(qPill) && qSubs.length === 3 && qSubs[2].text === 'Change the sneaker to red', { q1, q2, qPill, qSubs: qSubs.map((s) => s.text) });
+  // Bấm 1 lần vào node → bảng chi tiết; tab Kết quả có thông tin chạy + ảnh gốc.
+  await sleep(1500);
+  const sideInfo = await adEd.ev(`(async()=>{const card=document.querySelector('.node[data-node=g1] .chips');const r=card.getBoundingClientRect();
+    const o={bubbles:true,clientX:r.left+r.width-6,clientY:r.top+r.height/2,button:0};card.dispatchEvent(new MouseEvent('mousedown',o));window.dispatchEvent(new MouseEvent('mouseup',o));
+    await new Promise(x=>setTimeout(x,300));const opened=!document.getElementById('side').hidden;
+    document.querySelector('#side [data-tab=result]').click();await new Promise(x=>setTimeout(x,1500));
+    const s=document.getElementById('side');return {opened,kv:[...s.querySelectorAll('.kv span')].map(x=>x.textContent),prompts:s.querySelectorAll('.field .t').length,items:s.querySelectorAll('.res-item').length,dims:s.querySelector('.res-item .dims')?.textContent}})()`);
+  check('bấm 1 lần vào node mở bảng chi tiết; tab Kết quả có AI/model/thời gian/prompt/ảnh gốc', sideInfo.opened && ['Trạng thái', 'Thời gian chạy', 'AI', 'Model', 'Tỉ lệ'].every((k) => sideInfo.kv.includes(k)) && sideInfo.prompts >= 1 && sideInfo.items >= 1 && sideInfo.dims === '400 × 300', sideInfo);
 
   // ---- Seedance (Dreamina giả lập): List 2 ảnh → mỗi ảnh một video, đúng model / tỉ lệ / thời lượng ----
   await P(`(async()=>{

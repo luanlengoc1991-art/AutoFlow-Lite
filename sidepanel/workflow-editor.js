@@ -211,7 +211,7 @@ const pad2 = (k) => String(k).padStart(2, '0');
 function fitMedia(el, w, h, label) {
   const box = el.closest('.nb-media');
   if (box && w && h) box.style.aspectRatio = `${w} / ${h}`;
-  const dims = el.closest('.viewer, .lm')?.querySelector('.dims');
+  const dims = el.closest('.viewer, .lm, .res-item')?.querySelector('.dims');
   if (dims && label) dims.textContent = label;
 }
 function loadMediaInfo(root) {
@@ -420,6 +420,11 @@ function applyStatus(el, n) {
   el.querySelector(':scope > .progress-pill')?.remove();
   el.querySelector('.nb-media > .spinner')?.remove();
   el.querySelectorAll('.gen-status').forEach((x) => x.remove());
+  el.querySelector(':scope > .queued-pill')?.remove();
+  // Đang chờ tới lượt: giữ kết quả cũ, chỉ hiện nhãn chờ.
+  const waiting = queuedIds.has(n.id) && st?.status !== 'running' && n.type !== 'note';
+  el.classList.toggle('queued', waiting);
+  if (waiting) el.insertAdjacentHTML('beforeend', '<span class="queued-pill">⏳ Đang chờ tới lượt…</span>');
   if (!st || n.type === 'note') return;
   if (st.status === 'running') {
     // "Đang tạo video 3 / 7 · 1m 43s" (như "Generating video 3 of 7" của bản gốc).
@@ -752,7 +757,7 @@ canvas.addEventListener('mousedown', (e) => {
       const n = wf.nodes.find((x) => x.id === nid0);
       if (n?.type === 'note') wf.nodes.filter((m) => m.type !== 'note' && m.x >= n.x && m.y >= n.y && m.x < n.x + n.data.w && m.y < n.y + n.data.h).forEach((m) => ids.add(m.id));
     }
-    drag = { kind: 'move', ids: [...ids], sx: e.clientX, sy: e.clientY, start: Object.fromEntries([...ids].map((i) => { const n = wf.nodes.find((x) => x.id === i); return [i, { x: n.x, y: n.y }]; })), moved: false, target: e.target };
+    drag = { kind: 'move', ids: [...ids], sx: e.clientX, sy: e.clientY, start: Object.fromEntries([...ids].map((i) => { const n = wf.nodes.find((x) => x.id === i); return [i, { x: n.x, y: n.y }]; })), moved: false, target: e.target, shift: e.shiftKey };
     return;
   }
   // Canvas trống: khung chọn.
@@ -839,6 +844,11 @@ window.addEventListener('mouseup', (e) => {
       openLightbox(img.dataset.full || img.src, img.dataset.kind, img.src);
     }
     else if (d.target.closest('.nb-media[data-drop]')) openFilePicker(d.ids[0]);
+    // Bấm 1 lần (không kéo) vào node: mở bảng chi tiết của node đó (giữ tab đang xem).
+    else if (!d.shift && !d.target.closest('.label, .list-empty')) {
+      const id = d.target.closest('.node')?.dataset.node;
+      if (id) openSide(id, sideNodeId ? sideTab : 'config');
+    }
   }
   if (d.kind === 'resize') { dirty(); renderAll(); }
   if (d.kind === 'marquee') { d.box.remove(); renderBar(); }
@@ -1425,15 +1435,41 @@ function configFields(n) {
   }
 }
 
+// Tab "Kết quả": trạng thái, thời gian chạy, AI/model/tỉ lệ, prompt đã gửi, từng ảnh/video gốc (kích thước, mở, tải về).
 function resultsHtml(n) {
-  const res = statusOf(n) || (runReset ? null : wf.results?.[n.id]);
-  if (!res) return '<p class="hint">Chưa chạy node này. Bấm ▶ trên node hoặc chạy cả workflow.</p>';
+  const live = statusOf(n), saved = runReset ? null : wf.results?.[n.id];
+  const res = live?.preview || live?.status === 'running' || live?.status === 'error' ? live : saved || live;
+  const waiting = queuedIds.has(n.id) && live?.status !== 'running';
+  if (!res) return `<p class="hint">${waiting ? '⏳ Đang chờ tới lượt chạy.' : 'Chưa chạy node này. Bấm ▶ trên node hoặc chạy cả workflow.'}</p>`;
   const items = res.preview || [];
-  return `<p class="hint">Trạng thái: <b>${esc({ pending: 'chờ', running: 'đang chạy', done: 'xong', error: 'lỗi', skipped: 'bỏ qua' }[res.status] || res.status)}</b>${res.count ? ` · ${res.count} kết quả` : ''}</p>
+  const info = res.info || saved?.info;
+  const start = res.startedAt || saved?.startedAt, end = res.finishedAt || saved?.finishedAt;
+  const status = { pending: 'chờ', running: 'đang chạy', done: 'xong', error: 'lỗi', skipped: 'bỏ qua' }[res.status] || res.status;
+  const row = (k, v) => (v ? `<div class="kv"><span>${esc(k)}</span><b>${esc(v)}</b></div>` : '');
+  const meta = [
+    row('Trạng thái', `${status}${res.count ? ` · ${res.count} kết quả` : ''}${waiting ? ' · đang chờ lượt mới' : ''}`),
+    row('Thời gian chạy', start && end ? elapsed(end - start) : res.status === 'running' && start ? `${elapsed(Date.now() - start)} (đang chạy)` : ''),
+    row('Hoàn thành lúc', end ? new Date(end).toLocaleString() : ''),
+    row('AI', info?.provider ? PROVIDER_LABEL[info.provider] || info.provider : ''),
+    row('Loại', info?.genType === 'video' ? 'Video' : info?.genType === 'image' ? 'Ảnh' : ''),
+    row('Model', info?.model || (info?.genType ? 'Mặc định' : '')),
+    row('Tỉ lệ', info?.ratio), row('Thời lượng', info?.duration), row('Kiểu video', info?.videoMode),
+    row('Ảnh tham chiếu', info?.refs ? `${info.refs} ảnh mỗi lượt` : '')
+  ].join('');
+  const prompts = info?.prompts?.filter(Boolean) || [];
+  const media = items.filter((it) => it.kind !== 'text');
+  const texts = items.filter((it) => it.kind === 'text');
+  return `<div class="kv-box">${meta}</div>
     ${res.error ? `<div class="err-box">${esc(res.error)}</div>` : ''}
-    <div class="results">${items.map((it) => (it.kind === 'text'
-      ? `<div class="t">${esc(it.text)}</div>`
-      : `<div class="r">${it.thumb ? `<img src="${it.thumb}" alt="">` : `<div class="ph">${it.kind === 'video' ? I.video : I.image}</div>`}${it.url ? `<a href="${esc(it.url)}" target="_blank" rel="noopener">Mở</a>` : ''}</div>`)).join('')}</div>`;
+    ${prompts.length ? `<div class="field"><span class="lbl">Prompt đã gửi (${prompts.length})</span>${prompts.map((p) => `<div class="t">${esc(p)}</div>`).join('')}</div>` : ''}
+    ${media.length ? `<div class="field"><span class="lbl">Ảnh / video (${media.length})</span><div class="res-list">${media.map((it, i) => {
+      const src = (it.kind !== 'video' && fullSrc.get(it.url)?.src) || it.thumb || (it.kind !== 'video' ? it.url : '');
+      return `<div class="res-item">${src ? `<img src="${esc(src)}" data-full="${esc(it.url || '')}" data-kind="${it.kind}" data-provider="${esc(it.provider || '')}" data-lb="1" alt="">` : `<div class="ph">${it.kind === 'video' ? I.video : I.image}</div>`}
+        <div class="res-meta"><b>#${i + 1} ${it.kind === 'video' ? 'Video' : 'Ảnh'}</b><span class="dims" data-info="${esc(it.url || '')}" data-kind="${it.kind}">${esc(mediaInfo.get(it.url) || '')}</span>
+          ${it.prompt ? `<span class="muted">${esc(it.prompt.slice(0, 160))}</span>` : ''}
+          <span class="row">${it.url ? `<button class="btn-white sm" data-side="res-dl" data-i="${i}">${I.download} Tải về</button><a href="${esc(it.url)}" target="_blank" rel="noopener">Mở tab mới</a>` : ''}</span></div></div>`;
+    }).join('')}</div></div>` : ''}
+    ${texts.length ? `<div class="field"><span class="lbl">Văn bản (${texts.length})</span>${texts.map((it) => `<div class="t">${esc(it.text)}</div>`).join('')}</div>` : ''}`;
 }
 
 function openSide(id, tab = 'config') {
@@ -1457,6 +1493,7 @@ function openSide(id, tab = 'config') {
       ${slugMode ? `<input class="inp round" data-d="slug" value="${esc(draft.slug)}" placeholder="vd: nhan_vat">` : `<input class="inp round" data-d="name" value="${esc(draft.name)}">`}` : ''}
       ${configFields(n)}` : resultsHtml(n)}</div>
     ${tab === 'config' ? `<div class="side-foot"><button data-side="close">Đóng</button><button class="reset" data-side="reset" title="Đưa cấu hình về mặc định">${I.refresh} Reset</button><button class="primary" data-side="save">Lưu Node</button></div>` : ''}`;
+  loadMediaInfo(side);
 }
 
 side.addEventListener('input', (e) => {
@@ -1490,7 +1527,10 @@ side.addEventListener('click', (e) => {
   }
   const rm = e.target.closest('[data-rm]');
   if (rm) { e.preventDefault(); draft.media = draft.media.filter((_, i) => i !== +rm.dataset.rm); openSide(n.id, 'config'); return; }
+  const lb = e.target.closest('img[data-lb]');
+  if (lb) { openLightbox(lb.dataset.full && lb.dataset.kind === 'video' ? lb.dataset.full : lb.src, lb.dataset.kind, lb.src); return; }
   const act = e.target.closest('[data-side]')?.dataset.side;
+  if (act === 'res-dl') { downloadResult(n, +e.target.closest('[data-i]').dataset.i); return; }
   if (act === 'close') closeSide();
   if (act === 'delete') { select([n.id]); deleteSelection(); }
   if (act === 'power') { draft.enabled = !draft.enabled; setData(n.id, { enabled: draft.enabled }); openSide(n.id, sideTab); }
@@ -1522,6 +1562,20 @@ side.addEventListener('click', (e) => {
   }
 });
 
+// Tải 1 kết quả về máy (bản gốc; ảnh cần đăng nhập thì dùng bản đã đọc qua tab của provider).
+async function downloadResult(n, i) {
+  const res = statusOf(n)?.preview ? statusOf(n) : wf.results?.[n.id];
+  const it = (res?.preview || []).filter((p) => p.kind !== 'text')[i];
+  if (!it?.url) return;
+  const ext = it.kind === 'video' ? 'mp4' : 'png';
+  const name = `${store.settings.folder || 'AutoFlow'}/${wf.name}/${slugify(n.data.name || n.type)}_${i + 1}.${ext}`;
+  let url = it.url;
+  const full = fullSrc.get(it.url);
+  if (full?.src?.startsWith('blob:')) url = await new Promise((resolve) => { fetch(full.src).then((r) => r.blob()).then((b) => { const fr = new FileReader(); fr.onload = () => resolve(fr.result); fr.readAsDataURL(b); }); });
+  const r = await chrome.runtime.sendMessage({ type: 'afl:download', url, filename: name }).catch((e) => ({ ok: false, error: e.message }));
+  toast(r?.ok ? `Đã tải về ${name}` : `Không tải được: ${r?.error || 'lỗi'}`);
+}
+
 // ---------- Chạy (side panel thực hiện) ----------
 async function sendToPanel(msg) {
   try {
@@ -1538,8 +1592,9 @@ async function sendToPanel(msg) {
     }
   }
 }
+// Nút chạy chung khi đang chạy = Dừng. Chạy riêng node khi đang có lượt khác = vào hàng đợi, tự chạy khi tới lượt.
 async function runWorkflow(only) {
-  if (runState?.running && runState.workflowId === wf.id) {
+  if (!only?.length && runState?.running && runState.workflowId === wf.id) {
     await sendToPanel({ type: 'afl:stopWorkflow' });
     toast('Đang dừng workflow…');
     return;
@@ -1547,7 +1602,17 @@ async function runWorkflow(only) {
   if (wf.enabled === false) { toast('Workflow đang tắt (công tắc cạnh tên)'); return; }
   await save();
   const r = await sendToPanel({ type: 'afl:runWorkflow', id: wf.id, only: only?.length ? only : undefined });
-  toast(r?.ok ? (only?.length ? 'Đang chạy node đã chọn…' : 'Đang chạy workflow…') : (r?.error || 'Không chạy được'));
+  if (!r?.ok) { toast(r?.error || 'Không chạy được'); return; }
+  toast(r.queued ? 'Node đã vào hàng đợi, sẽ tự chạy khi tới lượt. Kết quả cũ vẫn hiển thị trong lúc chờ.' : only?.length ? 'Đang chạy node đã chọn…' : 'Đang chạy workflow…');
+}
+
+// Node đang chờ tới lượt (theo hàng đợi của side panel).
+let queuedIds = new Set();
+function applyQueue(queue) {
+  const ids = new Set();
+  for (const q of queue || []) if (q.id === wf.id) (q.only || wf.nodes.map((n) => n.id)).forEach((id) => ids.add(id));
+  queuedIds = ids;
+  for (const n of wf.nodes) { const el = nodeEl(n.id); if (el) applyStatus(el, n); }
 }
 function runGroup(note) {
   const ids = wf.nodes.filter((n) => n.type !== 'note' && n.x >= note.x && n.y >= note.y && n.x < note.x + note.data.w && n.y < note.y + note.data.h).map((n) => n.id);
@@ -1557,6 +1622,7 @@ function runGroup(note) {
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === 'afl:workflowState' && msg.state?.workflowId === wf.id) applyRunState(msg.state);
+  if (msg?.type === 'afl:workflowQueue') applyQueue(msg.queue);
 });
 function renderRunProgress() {
   let el = document.querySelector('.run-progress');
@@ -1781,4 +1847,4 @@ if (!found || !wf.viewport || (wf.viewport.x === 0 && wf.viewport.y === 0)) requ
 requestAnimationFrame(() => renderEdges());
 if (!found) save();
 // Nhận trạng thái chạy hiện tại nếu side panel đang mở (không tự mở panel khi chưa có thao tác).
-chrome.runtime.sendMessage({ type: 'afl:getWorkflowState' }).then((r) => { if (r?.state?.workflowId === wf.id) applyRunState(r.state, !r.state.running); }).catch(() => {});
+chrome.runtime.sendMessage({ type: 'afl:getWorkflowState' }).then((r) => { if (r?.state?.workflowId === wf.id) applyRunState(r.state, !r.state.running); applyQueue(r?.queue); }).catch(() => {});
