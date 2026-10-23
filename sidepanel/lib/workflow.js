@@ -3,9 +3,11 @@ import { store, uid } from './store.js';
 import { FINAL } from './runner.js';
 import { PROVIDERS } from './providers.js';
 import * as flow from './flow.js';
-import { NODE_DEFS, portsOf } from './workflow-nodes.js';
+import { NODE_DEFS, portsOf, splitMultiPrompt } from './workflow-nodes.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Text Extract không tìm thấy + "Bỏ qua nhánh sau": node này và mọi node phía sau được đánh dấu bỏ qua.
+class SkipBranch extends Error {}
 const MENTION_RE = /@([a-z0-9_]+)/gi;
 
 export function splitLines(text) {
@@ -151,14 +153,59 @@ export class WorkflowRunner {
     return String(text || '').replace(MENTION_RE, (m, slug) => {
       const src = ctx.bySlug.get(slug.toLowerCase());
       if (!src) return m;
-      const items = Object.values(ctx.outputs.get(src.id) || {}).flat().filter((i) => i.kind === 'text');
-      return items.length ? items.map((i) => i.text).join('\n') : m;
-    }).trim();
+      const all = Object.values(ctx.outputs.get(src.id) || {}).flat();
+      const items = all.filter((i) => i.kind === 'text');
+      if (items.length) return items.map((i) => i.text).join('\n');
+      // @slug của node ảnh/video: dùng để chọn ảnh tham chiếu (Mention Mode), không gửi vào prompt.
+      return all.length ? '' : m;
+    }).replace(/[ \t]{2,}/g, ' ').trim();
+  }
+
+  // Id các node được @mention trong văn bản.
+  mentionedIds(text, ctx) {
+    const ids = new Set();
+    for (const m of String(text || '').matchAll(MENTION_RE)) { const src = ctx.bySlug.get(m[1].toLowerCase()); if (src) ids.add(src.id); }
+    return ids;
+  }
+
+  // Mention Mode: prompt / ảnh tham chiếu từ node phía trước.
+  // all: dùng tất cả · mention: chỉ node được @mention · auto: có @mention thì như mention, không thì all.
+  // Prompt từ node đã @mention được chèn ngay vào chỗ @slug nên không ghép thêm lần nữa.
+  pickTexts(items, ownRaw, mode, ctx) {
+    const ids = this.mentionedIds(ownRaw, ctx);
+    if (mode === 'all') return items;
+    if (mode === 'mention') return [];
+    return items.filter((i) => !ids.has(i._src));
+  }
+  pickRefs(items, ownRaw, mode, ctx) {
+    const ids = this.mentionedIds(ownRaw, ctx);
+    if (mode === 'all') return items;
+    const hit = items.filter((i) => ids.has(i._src));
+    return mode === 'mention' || hit.length ? hit : items;
+  }
+
+  // Khung cuối video của Gemini/Grok: tách ngay trong side panel (không cần tab Flow).
+  async localLastFrame(item) {
+    const { dataUrl } = item.dataUrl ? item : await this.runner.mediaToDataUrl({ provider: item.provider || 'flow' }, item);
+    const v = document.createElement('video');
+    v.muted = true;
+    v.src = dataUrl;
+    await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej(new Error('Không đọc được video')); });
+    v.currentTime = Math.max(0, (v.duration || 0) - 0.05);
+    await new Promise((res) => { v.onseeked = res; setTimeout(res, 3000); });
+    const c = document.createElement('canvas');
+    c.width = v.videoWidth || 1; c.height = v.videoHeight || 1;
+    c.getContext('2d').drawImage(v, 0, 0);
+    const url = c.toDataURL('image/jpeg', 0.92);
+    return { kind: 'frame', dataUrl: url, mime: 'image/jpeg', thumb: url, provider: item.provider || '' };
   }
 
   // Một lượt tạo trên provider của node (Flow / Seedance / trang chat).
   genTask(node, d, ctx, { prompt, refIds }, isVideo, single = false) {
-    const common = { workflowRun: ctx.runId, autoDownload: false, refIds, prompt };
+    const common = {
+      workflowRun: ctx.runId, autoDownload: !!d.autoDownload, folder: ctx.folder, refIds, prompt,
+      ...(+d.timeoutSec > 0 ? { timeoutMs: +d.timeoutSec * 1000 } : {})
+    };
     if (node.type === 'seedance') return this.enqueue({ ...common, provider: 'seedance', genType: 'video', model: d.model || '', ratio: d.ratio || '', duration: d.duration || '' });
     if (node.type === 'generate') {
       return this.enqueue({
@@ -168,13 +215,19 @@ export class WorkflowRunner {
         duration: isVideo ? d.duration || '' : '', resolution: ''
       });
     }
-    return this.enqueue({ ...common, provider: node.type, chatMode: 'image', newChat: d.newChat !== false });
+    const chatOverrides = {
+      mode: d.mode || 'image', ratio: d.ratio || '', model: d.model || '', quality: d.quality || '', prefix: d.prefix || 'auto',
+      ...(d.mode === 'video' ? { duration: d.duration || '', resolution: d.resolution || '' } : {}),
+      ...(d.deleteAfter === 'yes' ? { deleteAfter: true } : d.deleteAfter === 'no' ? { deleteAfter: false } : {})
+    };
+    return this.enqueue({ ...common, provider: node.type, chatMode: 'image', newChat: d.newChat !== false, chatOverrides });
   }
 
   // Tạo ảnh/video gốc từ prompt + ảnh tham chiếu nối vào node.
   async generateMedia(node, inputs, ctx, texts, isVideo, opts = {}) {
     const d = node.data;
     const own = this.resolveMentions(d.prompt, ctx);
+    texts = this.pickTexts((inputs.text || []).filter((i) => i.kind === 'text'), d.prompt, d.promptMode || 'auto', ctx).map((i) => i.text);
     let prompts = opts.rawPrompt ? [opts.rawPrompt]
       : texts.length ? texts.map((t) => (own ? (own.includes('{input}') ? own.replaceAll('{input}', t) : `${own} ${t}`) : t)) : own ? [own] : [];
     const isSeedance = node.type === 'seedance';
@@ -191,7 +244,9 @@ export class WorkflowRunner {
       jobs = combine(prompts, starts.length ? starts : [null]).map(([prompt, start]) => ({ prompt, refIds: [start, end].filter(Boolean) }));
     } else {
       const refs = [];
-      for (const it of inputs.image_ref || []) refs.push(await this.toRef(it));
+      for (const it of this.pickRefs(inputs.image_ref || [], d.prompt, d.refMode || 'auto', ctx)) refs.push(await this.toRef(it));
+      // Ảnh tham chiếu chọn sẵn trong node (tối đa 4).
+      for (const r of (d.refs || []).slice(0, 4)) refs.push(store.addRef({ name: r.name || 'ref.png', mime: r.mime || 'image/png', dataUrl: r.dataUrl }));
       // Ingredients: video chuyển động mẫu cũng được tải lên làm thành phần.
       const extra = isVideo && inputs.video_ref?.[0] ? [await this.toRef(inputs.video_ref[0])] : [];
       jobs = d.perImage && refs.length > 1
@@ -205,7 +260,7 @@ export class WorkflowRunner {
       Object.assign(st, { total: tasks.length, done: 0 });
       // Thông tin lượt chạy cho tab "Kết quả" của trình soạn.
       st.info = {
-        provider: tasks[0]?.provider || node.type, genType: isVideo ? 'video' : 'image', model: d.model || '', ratio: d.ratio || '', duration: isVideo ? d.duration || '' : '',
+        provider: tasks[0]?.provider || node.type, genType: isVideo ? 'video' : 'image', model: d.model || d.quality || '', ratio: d.ratio || '', duration: isVideo ? d.duration || '' : '',
         videoMode: node.type === 'generate' && isVideo ? d.videoMode : '', prompts: jobs.slice(0, 20).map((j) => j.prompt.slice(0, 4000)), refs: jobs[0]?.refIds.length || 0
       };
     }
@@ -229,37 +284,61 @@ export class WorkflowRunner {
         return { text: d.text.trim() ? [{ kind: 'text', text: this.resolveMentions(d.text, ctx) }] : [] };
 
       case 'prompt': {
-        const own = this.resolveMentions(d.text, ctx);
-        let parts = texts.length ? texts.map((t) => (own ? (own.includes('{input}') ? own.replaceAll('{input}', t) : `${own}\n${t}`) : t)) : own ? [own] : [];
-        if (d.multi) parts = parts.flatMap((p) => p.split('\n').map((l) => l.trim()).filter(Boolean));
-        if (!d.agent) return { text: parts.map((text) => ({ kind: 'text', text })) };
-        const refIds = [];
-        for (const it of inputs.image_ref || []) refIds.push(await this.toRef(it));
-        const out = [];
-        for (const p of parts.length ? parts : ['']) {
-          if (ctx.cancelled) break;
-          const request = [this.resolveMentions(d.agentInstruction, ctx), p].filter(Boolean).join('\n\n');
-          const answer = await this.ask(d.agentProvider || 'chatgpt', request, { refIds, workflowRun: ctx.runId });
-          const lines = d.agentSplit ? splitLines(answer) : [answer.trim()];
-          out.push(...lines.map((text) => ({ kind: 'text', text })));
+        const ownTexts = d.multi ? splitMultiPrompt(d.text).map((p) => this.resolveMentions(p, ctx)) : [this.resolveMentions(d.text, ctx)].filter(Boolean);
+        const up = this.pickTexts((inputs.text || []).filter((i) => i.kind === 'text'), d.text, d.promptMode || 'auto', ctx).map((i) => i.text);
+        const withUp = (own) => (up.length ? up.map((t) => (own ? (own.includes('{input}') ? own.replaceAll('{input}', t) : `${own}\n${t}`) : t)) : own ? [own] : []);
+        // Multi-prompt: mỗi prompt ra cổng riêng p1, p2…; cổng "text" mang tất cả.
+        const groups = (ownTexts.length ? ownTexts : ['']).map(withUp);
+        let refIds = null;
+        const run = async (parts) => {
+          if (!d.agent) return parts;
+          if (!refIds) {
+            refIds = [];
+            for (const it of this.pickRefs(inputs.image_ref || [], d.text, d.refMode || 'auto', ctx)) refIds.push(await this.toRef(it));
+            for (const r of (d.refs || []).slice(0, 4)) refIds.push(store.addRef({ name: r.name || 'ref.png', mime: r.mime || 'image/png', dataUrl: r.dataUrl }));
+          }
+          const out = [];
+          for (const p of parts.length ? parts : ['']) {
+            if (ctx.cancelled) break;
+            const request = [this.resolveMentions(d.agentInstruction, ctx), p].filter(Boolean).join('\n\n');
+            try {
+              const answer = await this.ask(d.agentProvider || 'chatgpt', request, {
+                refIds, workflowRun: ctx.runId, timeoutMs: Math.max(10, +d.agentTimeout || 60) * 1000,
+                chatOverrides: { deleteAfter: !!d.agentDelete }
+              });
+              out.push(...(d.agentSplit ? splitLines(answer) : [answer.trim()]));
+            } catch (e) {
+              // Dự phòng: AI không trả lời (hết giờ / lỗi) thì dùng nguyên văn bản.
+              if (d.agentFallback === false || !p) throw e;
+              ctx.errors.push(`AI Agent: ${e.message}, dùng văn bản gốc`);
+              out.push(p);
+            }
+          }
+          return out;
+        };
+        const result = { text: [] };
+        for (let i = 0; i < groups.length; i++) {
+          const items = (await run(groups[i])).filter((t) => t !== '').map((text) => ({ kind: 'text', text }));
+          result.text.push(...items);
+          if (d.multi) result[`p${i + 1}`] = items;
         }
-        return { text: out };
+        return result;
       }
 
       case 'extract': {
         const src = texts.join('\n');
+        const flags = d.strict ? 'g' : 'gi';
         let out = [];
         if (d.mode === 'marker') {
           // Đoạn sau mốc [tên_mốc] cho tới mốc [..] kế tiếp (hoặc hết văn bản).
           const name = String(d.marker || '').replace(/^\[|\]$/g, '').trim();
           const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const m = new RegExp(`\\[${esc(name)}\\]\\s*:?\\s*([\\s\\S]*?)(?=\\n\\s*\\[[^\\]\\n]{1,60}\\]|$)`, 'i').exec(src);
-          out = m && m[1].trim() ? [m[1].trim()] : [];
-          if (!out.length) throw new Error(`Không tìm thấy mốc [${name}] trong văn bản đầu vào`);
+          const re = new RegExp(`\\[${esc(name)}\\]\\s*:?\\s*([\\s\\S]*?)(?=\\n\\s*\\[[^\\]\\n]{1,60}\\]|$)`, flags);
+          out = [...src.matchAll(re)].map((m) => m[1].trim()).filter(Boolean);
         } else if (d.mode === 'lines') out = splitLines(src);
         else if (d.mode === 'line') out = [src.split('\n').map((l) => l.trim()).filter(Boolean)[(parseInt(d.index, 10) || 1) - 1]].filter(Boolean);
         else if (d.mode === 'regex') {
-          const re = new RegExp(d.pattern || '.+', 'g');
+          const re = new RegExp(d.pattern || '.+', flags);
           out = [...src.matchAll(re)].map((m) => (m[1] ?? m[0]).trim()).filter(Boolean);
         } else if (d.mode === 'between') {
           const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -270,6 +349,17 @@ export class WorkflowRunner {
           let v = json;
           for (const key of String(d.path || '').split('.').filter(Boolean)) v = v?.[/^\d+$/.test(key) ? +key : key];
           out = (Array.isArray(v) ? v : [v]).filter((x) => x != null).map((x) => (typeof x === 'string' ? x : JSON.stringify(x)));
+        }
+        // Khớp nhiều: tất cả (mỗi mục một lượt) / đầu / cuối / nối thành một.
+        if (out.length > 1 && d.multiMatch === 'first') out = out.slice(0, 1);
+        else if (out.length > 1 && d.multiMatch === 'last') out = out.slice(-1);
+        else if (out.length > 1 && d.multiMatch === 'concat') out = [out.join('\n')];
+        if (!out.length) {
+          const what = d.mode === 'marker' ? `mốc [${String(d.marker || '').replace(/^\[|\]$/g, '')}]` : 'nội dung cần tách';
+          if (d.onFail === 'empty') return { text: [{ kind: 'text', text: '' }] };
+          if (d.onFail === 'skip') throw new SkipBranch(`Không tìm thấy ${what}, bỏ qua nhánh sau`);
+          if (d.onFail === 'fail') { ctx.cancelled = true; throw new Error(`Không tìm thấy ${what}, dừng workflow`); }
+          throw new Error(`Không tìm thấy ${what} trong văn bản đầu vào`);
         }
         return { text: out.map((text) => ({ kind: 'text', text })) };
       }
@@ -308,7 +398,7 @@ export class WorkflowRunner {
       case 'gemini':
       case 'grok': {
         const isSeedance = node.type === 'seedance';
-        const isVideo = isSeedance || (node.type === 'generate' && d.genType === 'video');
+        const isVideo = isSeedance || (node.type === 'generate' && d.genType === 'video') || ((node.type === 'gemini' || node.type === 'grok') && d.mode === 'video');
         const st = ctx.nodeState;
         // Prompt sửa kết quả (cổng "edit"): áp lần lượt lên ảnh/video mới nhất của chính node này.
         const edits = (inputs.edit || []).filter((i) => i.kind === 'text').map((i) => i.text.trim()).filter(Boolean);
@@ -362,7 +452,7 @@ export class WorkflowRunner {
         if (isVideo && ctx.wanted.has(`${node.id}:frame`)) {
           out.frame = [];
           for (const m of media) {
-            try { out.frame.push(await this.lastFrame(m)); } catch (e) { ctx.errors.push(e.message); }
+            try { out.frame.push(await (m.provider === 'flow' || !m.provider ? this.lastFrame(m) : this.localLastFrame(m))); } catch (e) { ctx.errors.push(e.message); }
           }
         }
         return out;
@@ -370,18 +460,38 @@ export class WorkflowRunner {
 
       case 'download': {
         const items = (inputs.media || []).filter((i) => i.kind !== 'text');
-        let n = 0;
-        const folder = d.folder?.trim() ? `${store.settings.folder || 'AutoFlow'}/${d.folder.trim()}` : ctx.folder;
+        // Gom tất cả ảnh/video đang có trên trang Flow (project đang mở).
+        if (d.collectFlow) {
+          const tab = await flow.findTab('flow');
+          const r = tab ? await flow.send(tab.id, { type: 'afl:listMedia', opts: { scroll: true } }).catch(() => null) : null;
+          if (!r?.ok) throw new Error('Gom ảnh trên Flow: cần mở một project Flow');
+          const have = new Set(items.map((i) => i.url));
+          for (const m of r.items) if (!have.has(m.url)) items.push({ kind: m.kind, url: m.url, thumb: m.thumb, provider: 'flow', prompt: m.prompt });
+        }
+        const now = new Date();
+        const pad = (x) => String(x).padStart(2, '0');
+        const vars = { workflow: ctx.name, node: node.data.name || 'download', date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`, time: `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}` };
+        const sub = String(d.folder || '').trim().replace(/\{(workflow|date|time)\}/gi, (_, k) => vars[k.toLowerCase()].replace(/[\\/:*?"<>|]+/g, '_'));
+        const folder = sub ? `${store.settings.folder || 'AutoFlow'}/${sub}` : ctx.folder;
+        const dlRes = { image: d.imageRes || '', video: d.videoRes || '' };
+        let n = 0, ok = 0;
         for (const it of items) {
+          if (ctx.cancelled) break;
           n++;
           const tab = it.provider ? await flow.findTab(it.provider) : null;
-          const fake = { index: n, prompt: it.prompt || ctx.name, provider: it.provider || 'flow', genType: it.kind, createdAt: Date.now(), folder };
+          const fake = {
+            index: n, prompt: it.prompt || ctx.name, provider: it.provider || 'flow', genType: it.kind, createdAt: Date.now(), folder,
+            filePattern: d.filePattern?.trim() || '', nameVars: { node: vars.node, workflow: vars.workflow }, dlRes
+          };
           if (it.dataUrl) {
-            await chrome.runtime.sendMessage({ type: 'afl:download', url: it.dataUrl, filename: `${this.runner.baseName(fake, n)}.${it.kind === 'video' ? 'mp4' : 'png'}` });
+            const r = await chrome.runtime.sendMessage({ type: 'afl:download', url: it.dataUrl, filename: `${this.runner.baseName(fake, n)}.${it.kind === 'video' ? 'mp4' : 'png'}` });
+            if (r?.ok) ok++;
           } else if (tab) {
-            await this.runner.download(tab.id, fake, it, n);
+            if ((await this.runner.download(tab.id, fake, it, n)).downloaded) ok++;
           }
+          if (ctx.nodeState) Object.assign(ctx.nodeState, { total: items.length, done: n });
         }
+        this.log(`${node.data.name || 'Download'}: đã tải ${ok}/${items.length} file`, ok === items.length ? 'ok' : 'warn');
         return {};
       }
 
@@ -389,13 +499,21 @@ export class WorkflowRunner {
         const items = inputs.media || [];
         if (!this.telegram) throw new Error('Bot Telegram chưa sẵn sàng');
         const st = store.settings;
-        if (!st.tgToken || !st.tgChatId) throw new Error('Chưa cấu hình Telegram (Cài đặt → AI Agent / Bot: token + /start để liên kết chat)');
+        const chatId = String(d.chatId || '').trim() || st.tgChatId;
+        if (!st.tgToken || !chatId) throw new Error('Chưa cấu hình Telegram (Cài đặt → AI Agent / Bot: token + /start để liên kết chat)');
         const caption = (it) => (d.caption?.trim() ? d.caption.trim().replace(/\{prompt\}/g, it.prompt || '') : it.prompt || ctx.name);
+        const media = [];
         for (const it of items) {
           if (ctx.cancelled) break;
-          if (it.kind === 'text') { await this.telegram.send(it.text || ''); continue; }
+          if (it.kind === 'text') { await this.telegram.send(it.text || '', chatId); continue; }
           const dataUrl = it.dataUrl || (await this.runner.mediaToDataUrl({ provider: it.provider || 'flow' }, it)).dataUrl;
-          await this.telegram.sendMedia(dataUrl, it.kind, caption(it));
+          media.push({ dataUrl, kind: it.kind === 'video' ? 'video' : 'image', caption: caption(it) });
+        }
+        // Gộp 1 tin nhắn (album, tối đa 10 file/tin) hoặc gửi từng file.
+        if (d.sendMode === 'group' && media.length > 1) {
+          for (let i = 0; i < media.length; i += 10) await this.telegram.sendMediaGroup(media.slice(i, i + 10), chatId);
+        } else {
+          for (const m of media) await this.telegram.sendMedia(m.dataUrl, m.kind, m.caption, chatId);
         }
         this.log(`${node.title || 'Telegram'}: đã gửi ${items.length} mục`, 'ok');
         return { pass: items };
@@ -447,7 +565,7 @@ export class WorkflowRunner {
     }
     const wanted = new Set(workflow.edges.map((e) => `${e.from.node}:${e.from.port}`));
     const ctx = {
-      runId: uid(), cancelled: false, errors: [], bySlug, outputs: new Map(), wanted, name: workflow.name,
+      runId: uid(), cancelled: false, errors: [], bySlug, outputs: new Map(), wanted, name: workflow.name, skipped: new Set(),
       editOnly, saved, savedInfo: (id) => workflow.results?.[id]?.info || null,
       folder: `${store.settings.folder || 'AutoFlow'}/${workflow.name.replace(/[\\/:*?"<>|]+/g, '_')}`
     };
@@ -470,7 +588,7 @@ export class WorkflowRunner {
           // Node không tốn lượt (Text, Prompt thường, Ảnh tải lên, Text Extract): đọc lại ngay thay vì để trống.
           if (!out && node.data.enabled !== false && (['text', 'image', 'extract'].includes(node.type) || (node.type === 'prompt' && !node.data.agent))) {
             const inputs = {};
-            for (const e of workflow.edges.filter((x) => x.to.node === node.id)) (inputs[e.to.port] ||= []).push(...(ctx.outputs.get(e.from.node)?.[e.from.port] || []));
+            for (const e of workflow.edges.filter((x) => x.to.node === node.id)) (inputs[e.to.port] ||= []).push(...(ctx.outputs.get(e.from.node)?.[e.from.port] || []).map((i) => ({ ...i, _src: e.from.node })));
             ctx.nodeState = null;
             out = await this.execNode(node, inputs, ctx).catch(() => ({}));
           }
@@ -479,14 +597,16 @@ export class WorkflowRunner {
         }
         const st = this.state.nodes[node.id];
         const inputs = {};
-        let hasUpstream = false, upstreamItems = 0;
+        let hasUpstream = false, upstreamItems = 0, skippedUp = false;
         for (const e of workflow.edges.filter((x) => x.to.node === node.id && (!editOnly.has(node.id) || x.to.port !== 'edit' || opts.only.includes(x.from.node)))) {
           hasUpstream = true;
           const items = ctx.outputs.get(e.from.node)?.[e.from.port] || [];
           upstreamItems += items.length;
-          (inputs[e.to.port] ||= []).push(...items);
+          if (ctx.skipped.has(e.from.node)) skippedUp = true;
+          (inputs[e.to.port] ||= []).push(...items.map((i) => ({ ...i, _src: e.from.node })));
         }
         if (!node.data.enabled) { Object.assign(st, { status: 'skipped', error: 'Node đang tắt' }); ctx.outputs.set(node.id, {}); this.onUpdate(); continue; }
+        if (skippedUp) { Object.assign(st, { status: 'skipped', error: 'Nhánh phía trước bị bỏ qua' }); ctx.skipped.add(node.id); ctx.outputs.set(node.id, {}); this.onUpdate(); continue; }
         const needsInput = NODE_DEFS[node.type].ins.length && !['prompt', 'generate', 'seedance', 'chatgpt', 'gemini', 'grok', 'assistant', 'list'].includes(node.type);
         if (hasUpstream && !upstreamItems && needsInput) { Object.assign(st, { status: 'skipped' }); ctx.outputs.set(node.id, {}); this.onUpdate(); continue; }
         st.status = 'running';
@@ -502,6 +622,13 @@ export class WorkflowRunner {
           if (node.type === 'assistant' || (node.type === 'prompt' && node.data.agent)) st.sig = aiSig(node);
         } catch (e) {
           ctx.outputs.set(node.id, {});
+          if (e instanceof SkipBranch) {
+            Object.assign(st, { status: 'skipped', error: e.message });
+            ctx.skipped.add(node.id);
+            this.log(`Workflow: node "${st.title}": ${e.message}`, 'warn');
+            this.onUpdate();
+            continue;
+          }
           Object.assign(st, { status: 'error', error: e.message });
           this.log(`Workflow: node "${st.title}" lỗi: ${e.message}`, 'error');
         }

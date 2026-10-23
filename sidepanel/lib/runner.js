@@ -191,7 +191,7 @@ export class Runner {
       return;
     }
     task.progress = r.progress;
-    const timedOut = Date.now() - a.startedAt > Math.max(1, store.settings.timeoutMin) * 60000;
+    const timedOut = Date.now() - a.startedAt > (task.timeoutMs || Math.max(1, store.settings.timeoutMin) * 60000);
     if (r.status === 'running' && !timedOut) { this.onChange(); this.broadcast(); return; }
     this.active.delete(id);
     const hasOutput = r.results?.length || (task.chatMode === 'text' && r.text);
@@ -241,7 +241,7 @@ export class Runner {
   async chatCleanup(task, a, conv, kept) {
     const s = store.settings, p = task.provider, name = PROVIDERS[p].name;
     const followers = store.tasks.some((x) => x.chainPrev && x.batchId === task.batchId && x.index > task.index && !FINAL.has(x.status));
-    if (s[`${p}DeleteAfter`] && conv) {
+    if ((task.chatOverrides?.deleteAfter ?? s[`${p}DeleteAfter`]) && conv) {
       if (!kept) this.log(`#${task.index}: giữ cuộc trò chuyện ${name} vì kết quả chưa được tải về`, 'warn');
       else if (followers) this.log(`#${task.index}: giữ cuộc trò chuyện ${name} cho task dùng kết quả trước`);
       else {
@@ -259,7 +259,7 @@ export class Runner {
     const s = store.settings;
     const folder = (task.folder || s.folder || 'AutoFlow').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
     const prompt = task.prompt.replace(/@(char|voice):(\[[^\]]+\]|\S+)/g, ' ').trim();
-    const name = buildFilename(s.pattern, { index: task.index, prompt, n, genType: task.genType || task.chatMode, model: task.model || task.provider, time: task.createdAt, project: s.project });
+    const name = buildFilename(task.filePattern || s.pattern, { index: task.index, prompt, n, genType: task.genType || task.chatMode, model: task.model || task.provider, time: task.createdAt, project: s.project, vars: task.nameVars });
     return `${folder}/${name}`;
   }
 
@@ -271,7 +271,7 @@ export class Runner {
   async download(tabId, task, item, n) {
     const base = this.baseName(task, n);
     const isFlow = !task.provider || task.provider === 'flow';
-    const res = isFlow ? (item.kind === 'video' ? store.settings.dlVideoRes : store.settings.dlImageRes) : 'original';
+    const res = isFlow ? (task.dlRes?.[item.kind] || (item.kind === 'video' ? store.settings.dlVideoRes : store.settings.dlImageRes)) : 'original';
     try {
       if (isFlow && UPSCALE[item.kind]?.includes(res)) {
         const r = await this.downloadViaMenu(tabId, item, res, base);

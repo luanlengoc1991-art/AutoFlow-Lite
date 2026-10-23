@@ -152,4 +152,20 @@ export class TelegramBot {
     fd.append(kind === 'video' ? 'video' : 'photo', blob, kind === 'video' ? 'autoflow.mp4' : 'autoflow.png');
     await this.api(kind === 'video' ? 'sendVideo' : 'sendPhoto', fd).catch((e) => this.log(`Telegram: ${e.message}`, 'warn'));
   }
+
+  // Gộp tối đa 10 ảnh/video thành 1 tin nhắn (album); chú thích nằm ở file đầu.
+  async sendMediaGroup(list, chatId = this.getSettings().tgChatId) {
+    if (!chatId || !list.length) return;
+    const fd = new FormData();
+    fd.append('chat_id', chatId);
+    const media = [];
+    for (let i = 0; i < list.length; i++) {
+      const { dataUrl, kind, caption } = list[i];
+      const name = `f${i}`;
+      fd.append(name, await (await fetch(dataUrl)).blob(), kind === 'video' ? `${name}.mp4` : `${name}.png`);
+      media.push({ type: kind === 'video' ? 'video' : 'photo', media: `attach://${name}`, ...(i === 0 && caption ? { caption: caption.slice(0, 1000) } : {}) });
+    }
+    fd.append('media', JSON.stringify(media));
+    await this.api('sendMediaGroup', fd).catch((e) => this.log(`Telegram: ${e.message}`, 'warn'));
+  }
 }

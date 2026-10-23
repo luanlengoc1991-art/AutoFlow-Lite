@@ -745,6 +745,49 @@ try {
   let tgNodeSent = [];
   for (let i = 0; i < 20; i++) { await sleep(800); tgNodeSent = (await tgSent()).slice(sentBeforeNode); if (tgNodeSent.length >= 2) break; }
   check('Node Telegram: gửi văn bản + ảnh từ workflow về chat', tgRun?.ok && tgNodeSent.some((m) => m.method === 'sendMessage' && m.text === 'hello from workflow') && tgNodeSent.some((m) => m.method === 'sendPhoto' && m.bytes > 100), { tgRun, sent: tgNodeSent.map((m) => m.method + (m.text ? ':' + m.text : '')) });
+
+  // ---- Tuỳ chọn node như TobyFlow: dựng workflow bằng mã rồi chạy, đợi kết quả lưu vào storage ----
+  // build: thân hàm nhận (C, E, png) trả về { nodes, edges }; C(type, data) tạo node, E(a, ap, b, bp) tạo dây.
+  async function runBuilt(name, build, timeout = 90000) {
+    const id = await P(`(async()=>{const {createNode,newWorkflow,nid}=await import('./lib/workflow-nodes.js');const {store}=await import('./lib/store.js');
+      const cv=document.createElement('canvas');cv.width=cv.height=64;const x=cv.getContext('2d');x.fillStyle='#3a6';x.fillRect(0,0,64,64);const png=cv.toDataURL('image/png');
+      let k=0;const C=(t,d)=>createNode(t,(k++)*320,0,d);const E=(a,ap,b,bp)=>({id:nid(),from:{node:a.id,port:ap},to:{node:b.id,port:bp}});
+      const wf=newWorkflow(${JSON.stringify(name)});Object.assign(wf,(${build})(C,E,png));store.workflows.push(wf);await chrome.storage.local.set({aflWorkflows:store.workflows});return wf.id})()`);
+    await bg.ev(`chrome.runtime.sendMessage({ type: 'afl:runWorkflow', id: ${JSON.stringify(id)} })`);
+    const t0 = Date.now();
+    let res = null;
+    while (Date.now() - t0 < timeout) {
+      await sleep(1500);
+      res = await P(`(async()=>{const {aflWorkflows=[]}=await chrome.storage.local.get('aflWorkflows');const w=aflWorkflows.find(x=>x.id===${JSON.stringify(id)});return w?.runs ? Object.fromEntries(w.nodes.map(n=>[n.data.name,{s:w.results?.[n.id]?.status,e:w.results?.[n.id]?.error,c:w.results?.[n.id]?.count}])) : null})()`);
+      if (res) break;
+    }
+    return res;
+  }
+
+  // Multi-prompt: mỗi prompt một cổng ra; chỉ nối cổng Prompt 2 → Flow nhận đúng prompt thứ 2.
+  let subsBefore = (await flowPage.ev('window.mock.submits')).length;
+  const multiRes = await runBuilt('Multi port', `(C,E)=>{const p=C('prompt',{name:'P',multi:true,text:'a red cube\\n\\na blue sphere'});const g=C('generate',{name:'G'});return {nodes:[p,g],edges:[E(p,'p2',g,'text')]}}`);
+  const multiSubs = (await flowPage.ev('window.mock.submits')).slice(subsBefore).map((x) => x.text);
+  check('Multi-prompt: cổng "Prompt 2" chỉ chuyển prompt thứ 2', multiRes?.G?.s === 'done' && multiSubs.length === 1 && multiSubs[0] === 'a blue sphere', { multiRes, multiSubs });
+
+  // Text Extract không tìm thấy mốc + "Bỏ qua nhánh sau": node phía sau bị bỏ qua, Flow không nhận gì.
+  subsBefore = (await flowPage.ev('window.mock.submits')).length;
+  const skipRes = await runBuilt('Skip branch', `(C,E)=>{const t=C('text',{name:'T',text:'không có mốc nào'});const x=C('extract',{name:'X',mode:'marker',marker:'image_prompt_01',onFail:'skip'});const g=C('generate',{name:'G'});return {nodes:[t,x,g],edges:[E(t,'text',x,'text'),E(x,'text',g,'text')]}}`);
+  check('Text Extract "Bỏ qua nhánh sau": node sau bị bỏ qua', skipRes?.X?.s === 'skipped' && skipRes?.G?.s === 'skipped' && (await flowPage.ev('window.mock.submits')).length === subsBefore, skipRes);
+  const concatRes = await runBuilt('Extract concat', `(C,E)=>{const t=C('text',{name:'T',text:'a1 b2 c3'});const x=C('extract',{name:'X',mode:'regex',pattern:'[a-z](\\\\d)',multiMatch:'concat'});return {nodes:[t,x],edges:[E(t,'text',x,'text')]}}`);
+  check('Text Extract "Nối tất cả": 3 kết quả gộp thành 1 mục', concatRes?.X?.s === 'done' && concatRes.X.c === 1, concatRes);
+
+  // Telegram "Gộp (1 tin nhắn)": 2 ảnh → sendMediaGroup.
+  const tgBeforeGroup = (await tgSent()).length;
+  const groupRes = await runBuilt('TG group', `(C,E,png)=>{const im=C('image',{name:'I',media:[{kind:'image',dataUrl:png,mime:'image/png'},{kind:'image',dataUrl:png,mime:'image/png'}]});const tg=C('telegram',{name:'TG',sendMode:'group',caption:'album'});return {nodes:[im,tg],edges:[E(im,'media',tg,'media')]}}`);
+  const groupSent = (await tgSent()).slice(tgBeforeGroup);
+  check('Telegram "Gộp": 2 ảnh gửi thành 1 album', groupRes?.TG?.s === 'done' && groupSent.length === 1 && groupSent[0].method === 'sendMediaGroup', { groupRes, groupSent: groupSent.map((m) => m.method) });
+
+  // Node ChatGPT: tỷ lệ + "Luôn thêm Generate an image:" riêng của node.
+  const gptRes = await runBuilt('GPT opts', `(C,E)=>{const g=C('chatgpt',{name:'GPT',prompt:'a green pear on a table',ratio:'1:1',prefix:'always'});return {nodes:[g],edges:[]}}`, 120000);
+  // Chat mới tải lại trang chat giả lập (danh sách tin đã gửi bị đặt lại): đọc tin cuối.
+  const nodeGptSent = chatPage ? (await chatPage.ev('window.chatMock.sent')).slice(-1).map((x) => x.text) : [];
+  check('Node ChatGPT: tỷ lệ + tiền tố riêng của node', gptRes?.GPT?.s === 'done' && /^Generate an image: a green pear on a table/.test(nodeGptSent[0] || '') && /Aspect ratio: 1:1/.test(nodeGptSent[0] || ''), { gptRes, nodeGptSent });
   await P(`(async()=>{const {store}=await import('./lib/store.js');store.settings.tgEnabled=false;store.save('settings',0);return 1})()`);
 
   await P(`document.querySelector('[data-tab=queue]').click()`);

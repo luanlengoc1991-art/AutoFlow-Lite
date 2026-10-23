@@ -29,6 +29,20 @@ export const PROVIDER_LABEL = { flow: 'Google Flow', chatgpt: 'ChatGPT', gemini:
 export const TEXT_AI = ['chatgpt', 'claude', 'gemini', 'grok'];
 // Kiểu cổng ra của List theo loại mục đang chứa.
 const listType = (d) => ({ text: 'text', image: 'image', video: 'video' })[d.kind] || 'any';
+// Multi-prompt: tách theo dòng trống nếu có, không thì mỗi dòng một prompt.
+export function splitMultiPrompt(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return [];
+  return (/\n\s*\n/.test(raw) ? raw.split(/\n\s*\n/) : raw.split('\n')).map((x) => x.trim()).filter(Boolean);
+}
+// Cổng ra của Prompt: "Tất cả" + mỗi prompt một cổng (p1, p2…) khi bật Multi-prompt.
+const promptOuts = (d) => [
+  { name: 'text', type: 'text', label: d.multi ? 'Tất cả prompt' : 'Văn bản' },
+  ...(d.multi ? splitMultiPrompt(d.text).slice(0, 20).map((p, i) => ({ name: `p${i + 1}`, type: 'text', label: `Prompt ${i + 1}: ${p.slice(0, 24)}` })) : [])
+];
+// Tuỳ chọn chung của node tạo ảnh/video: Mention Mode, tự tải, thời gian chờ.
+const GEN_COMMON = { promptMode: 'auto', refMode: 'auto', autoDownload: false, timeoutSec: 0 };
+const isChatVideo = (d) => d.mode === 'video';
 
 export const NODE_DEFS = {
   prompt: {
@@ -38,8 +52,8 @@ export const NODE_DEFS = {
       { name: 'text', type: 'text', multi: true, label: 'Prompt đầu vào' },
       { name: 'image_ref', type: 'image', multi: true, label: 'Ảnh cho AI phân tích', when: (d) => d.agent }
     ],
-    outs: [{ name: 'text', type: 'text', label: 'Văn bản' }],
-    data: { text: '', multi: false, agent: false, agentProvider: 'chatgpt', agentInstruction: 'Viết lại thành một prompt tạo ảnh chi tiết bằng tiếng Anh. Chỉ trả về prompt.', agentSplit: false }
+    outs: promptOuts,
+    data: { text: '', multi: false, agent: false, agentProvider: 'chatgpt', agentInstruction: 'Viết lại thành một prompt tạo ảnh chi tiết bằng tiếng Anh. Chỉ trả về prompt.', agentSplit: false, agentTimeout: 60, agentFallback: true, agentDelete: false, refs: [], promptMode: 'auto', refMode: 'auto' }
   },
   text: {
     title: 'Text', icon: 'text', group: 'Văn bản',
@@ -53,7 +67,7 @@ export const NODE_DEFS = {
     desc: 'Tách văn bản: theo mốc [image_prompt_01], theo dòng, regex, giữa 2 mốc, JSON.',
     ins: [{ name: 'text', type: 'text', multi: false, label: 'Văn bản đầu vào' }],
     outs: [{ name: 'text', type: 'text', label: 'Văn bản đã tách' }],
-    data: { mode: 'marker', marker: 'image_prompt_01', pattern: '', start: '', end: '', path: '', index: '' }
+    data: { mode: 'marker', marker: 'image_prompt_01', pattern: '', start: '', end: '', path: '', index: '', strict: false, multiMatch: 'all', onFail: 'error' }
   },
   assistant: {
     title: 'Assistant', icon: 'assistant', group: 'Văn bản',
@@ -94,7 +108,7 @@ export const NODE_DEFS = {
       { name: 'media', type: (d) => (isVideo(d) ? 'video' : 'image'), label: 'Kết quả' },
       { name: 'frame', type: 'frame', label: 'Khung cuối video', when: isVideo }
     ],
-    data: { genType: 'image', model: '', ratio: '', quantity: 1, videoMode: 'frames', duration: '', prompt: '', perImage: false }
+    data: { genType: 'image', model: '', ratio: '', quantity: 1, videoMode: 'frames', duration: '', prompt: '', perImage: false, ...GEN_COMMON }
   },
   seedance: {
     title: 'Seedance - Video', icon: 'video', group: 'Tạo', provider: 'seedance',
@@ -106,37 +120,43 @@ export const NODE_DEFS = {
       EDIT_PORT
     ],
     outs: [{ name: 'media', type: 'video', label: 'Video' }],
-    data: { genType: 'video', model: '', ratio: '', duration: '', prompt: '' }
+    data: { genType: 'video', model: '', ratio: '', duration: '', prompt: '', ...GEN_COMMON }
   },
   chatgpt: {
     title: 'ChatGPT', icon: 'chat', group: 'Tạo', provider: 'chatgpt', desc: 'Tạo ảnh bằng ChatGPT.',
     ins: [{ name: 'image_ref', type: 'image', multi: true, label: 'Ảnh tham chiếu' }, { name: 'text', type: 'text', multi: true, label: 'Prompt' }, EDIT_PORT],
     outs: [{ name: 'media', type: 'image', label: 'Ảnh' }],
-    data: { prompt: '', newChat: true }
+    data: { prompt: '', newChat: true, mode: 'image', ratio: '', model: '', refs: [], prefix: 'auto', deleteAfter: '', ...GEN_COMMON }
   },
   gemini: {
-    title: 'Gemini', icon: 'chat', group: 'Tạo', provider: 'gemini', desc: 'Tạo ảnh bằng Gemini.',
+    title: 'Gemini', icon: 'chat', group: 'Tạo', provider: 'gemini', desc: 'Tạo ảnh / video bằng Gemini.',
     ins: [{ name: 'image_ref', type: 'image', multi: true, label: 'Ảnh tham chiếu' }, { name: 'text', type: 'text', multi: true, label: 'Prompt' }, EDIT_PORT],
-    outs: [{ name: 'media', type: 'image', label: 'Ảnh' }],
-    data: { prompt: '', newChat: true }
+    outs: [
+      { name: 'media', type: (d) => (isChatVideo(d) ? 'video' : 'image'), label: 'Kết quả' },
+      { name: 'frame', type: 'frame', label: 'Khung cuối video', when: isChatVideo }
+    ],
+    data: { prompt: '', newChat: true, mode: 'image', ratio: '', model: '', refs: [], deleteAfter: '', ...GEN_COMMON }
   },
   grok: {
-    title: 'Grok', icon: 'chat', group: 'Tạo', provider: 'grok', desc: 'Tạo ảnh bằng Grok.',
+    title: 'Grok', icon: 'chat', group: 'Tạo', provider: 'grok', desc: 'Tạo ảnh / video bằng Grok.',
     ins: [{ name: 'image_ref', type: 'image', multi: true, label: 'Ảnh tham chiếu' }, { name: 'text', type: 'text', multi: true, label: 'Prompt' }, EDIT_PORT],
-    outs: [{ name: 'media', type: 'image', label: 'Ảnh' }],
-    data: { prompt: '', newChat: true }
+    outs: [
+      { name: 'media', type: (d) => (isChatVideo(d) ? 'video' : 'image'), label: 'Kết quả' },
+      { name: 'frame', type: 'frame', label: 'Khung cuối video', when: isChatVideo }
+    ],
+    data: { prompt: '', newChat: true, mode: 'image', ratio: '', quality: '', duration: '6s', resolution: '720p', refs: [], ...GEN_COMMON }
   },
   download: {
     title: 'Download', icon: 'download', group: 'Tiện ích', desc: 'Tự tải kết quả về máy.',
     ins: [{ name: 'media', type: 'any', multi: true, label: 'File cần tải' }],
     outs: [],
-    data: { folder: '' }
+    data: { folder: '', filePattern: '', imageRes: '', videoRes: '', collectFlow: false }
   },
   telegram: {
     title: 'Telegram', icon: 'send', group: 'Tiện ích', desc: 'Gửi ảnh / video / văn bản về chat Telegram đã liên kết.',
     ins: [{ name: 'media', type: 'any', multi: true, label: 'Gửi về Telegram' }],
     outs: [{ name: 'pass', type: 'any', label: 'Chuyển tiếp' }],
-    data: { caption: '' }
+    data: { caption: '', chatId: '', sendMode: 'single' }
   },
   delay: {
     title: 'Wait', icon: 'delay', group: 'Tiện ích', desc: 'Chờ X giây rồi chuyển tiếp.',
@@ -147,13 +167,14 @@ export const NODE_DEFS = {
   note: {
     title: 'Ghi chú', icon: 'note', group: 'Tiện ích', desc: 'Khung ghi chú / nhóm node (chạy riêng cả nhóm).',
     ins: [], outs: [],
-    data: { text: '', color: '#c6f432', w: 460, h: 320 }
+    data: { text: '', color: '#c6f432', w: 460, h: 320, fontSize: 14 }
   }
 };
 
 export const portsOf = (node, dir) => {
   const def = NODE_DEFS[node.type];
-  return (dir === 'in' ? def.ins : def.outs).filter((p) => !p.when || p.when(node.data));
+  const list = dir === 'in' ? def.ins : typeof def.outs === 'function' ? def.outs(node.data) : def.outs;
+  return list.filter((p) => !p.when || p.when(node.data));
 };
 export const portType = (node, port) => (typeof port.type === 'function' ? port.type(node.data) : port.type);
 

@@ -73,25 +73,28 @@ AutoFlow không dùng API key hay server trung gian: nó điều khiển trực 
 - Thanh công cụ trái: thêm node (N), chọn, bàn tay, ghi chú/nhóm, media từ thư viện, chạy, hoàn tác/làm lại, refresh, tìm node, sắp xếp lại, cài đặt.
 - Menu chuột phải giống bản gốc; menu thêm node có ô tìm kiếm và phím ↑↓ Enter Esc.
 - **Node:**
-  - Prompt (Plain / AI Agent ChatGPT-Gemini-Grok, Multi-prompt)
+  - Prompt / AI Agent: **Multi-prompt** (cách nhau dòng trống) tạo **mỗi prompt một cổng ra** (p1, p2…) + cổng "Tất cả"; **Dùng AI** (ChatGPT / Claude / Gemini / Grok) với thời gian chờ, tối đa 4 ảnh tham chiếu, dùng văn bản gốc nếu AI lỗi, xoá cuộc trò chuyện sau khi chạy
   - Text (nguồn cho `@slug`)
-  - Text Extract
+  - Text Extract: Marker / dòng / Regex / giữa 2 mốc / JSON; Strict (phân biệt hoa thường); khi khớp nhiều: Tất cả / Đầu / Cuối / Nối; khi không tìm thấy: Báo lỗi / Trả rỗng / **Bỏ qua nhánh sau** / Dừng workflow
   - Image/Video (tải lên, kéo thả, dán, từ thư viện)
   - **Assistant**: hỏi ChatGPT / Claude / Gemini / Grok (kèm ảnh), **Export as text** hoặc **Export as list**
   - **List**: danh sách văn bản / ảnh / video; sửa, xoá, thêm từng mục ngay trên node; **Keep items** (giữ và thêm) hoặc thay mục khi chạy lại. Node phía sau chạy **mỗi mục một lượt**; chạy riêng node phía sau dùng đúng danh sách đang hiển thị, không gọi lại AI
   - Flow - Image/Video Generate (cổng ảnh tham chiếu, prompt, Khung đầu/cuối; cổng ra kết quả và khung cuối video). Nhiều ảnh vào Khung đầu → mỗi ảnh một video; tuỳ chọn "Mỗi ảnh tham chiếu một lượt"
   - **Seedance - Video** (Dreamina): Khung đầu nhận cả List ảnh, mỗi ảnh một video
   - Cùng số prompt và số ảnh thì ghép 1-1, khác thì mỗi prompt × mỗi ảnh
-  - ChatGPT, Gemini, Grok
-  - Download, Wait
-  - **Telegram**: gửi ảnh / video (kèm chú thích, `{prompt}`) hoặc văn bản về chat Telegram đã liên kết; cổng ra chuyển tiếp dữ liệu
-  - Ghi chú (khung nhóm, chạy cả nhóm)
+  - ChatGPT (ảnh), **Gemini** và **Grok** (Ảnh / **Video**, cổng ra khung cuối video): tỷ lệ, model / chất lượng, thời lượng + độ phân giải video (Grok), tối đa 4 ảnh tham chiếu trong node, Chat mới, tự tải, cách tạo ảnh (ChatGPT), xoá cuộc trò chuyện, thời gian chờ
+  - **Mention Mode** (Prompt / Ref: Auto · All · Mention) cho Generate, Seedance, ChatGPT, Gemini, Grok, AI Agent: chọn prompt / ảnh tham chiếu từ node được `@mention`
+  - Download: độ phân giải ảnh / video riêng, **Gom tất cả ảnh trên Flow**, tên thư mục `{workflow} {date} {time}`, tên file `{prompt} {node} {index} {date} {time}`
+  - Wait
+  - **Telegram**: Chat ID riêng, gửi **từng ảnh** hoặc **gộp 1 tin nhắn** (album), chú thích `{prompt}`; cổng ra chuyển tiếp dữ liệu
+  - Ghi chú (khung nhóm, màu, cỡ chữ, chạy cả nhóm)
 - **Cổng có kiểu** (văn bản tím, ảnh xanh dương, video tím đậm, khung hình xanh ngọc). Nối sai kiểu hoặc tạo vòng lặp sẽ bị chặn. Thả dây ra chỗ trống để mở menu node phù hợp.
 - Thanh nổi trên node: chạy node, cấu hình, tạo nhánh, nhân bản, xoá.
 - Panel phải: Cấu hình / Kết quả, Tên Node / @Slug, Close / Reset / Lưu Node.
 - Tên node tự đánh số ("Text #1", "Assistant #2"); **nhấp đúp vào tiêu đề** để đổi tên. Canvas trống hiện thẻ bắt đầu nhanh.
 - Kết quả trong node: lật trang **01/07**, góc trên hiện kích thước ảnh / thời lượng video, bấm để xem lớn (video phát được). Dây mang nhiều mục hiện nét đứt.
 - **Khi chạy:** node đang chạy có viền gradient chuyển động, dòng "Đang tạo video 3 / 7… · 1m 43s" và thanh "đã xong/tổng"; node xong có viền xanh; dây đang truyền dữ liệu có hạt chạy; panel **Log & tiến độ**.
+- **Hiệu ứng:** node đang chọn / lỗi sáng theo nhịp, dây đang chọn phát sáng, dây đang kéo nhấp nháy, cổng nối được / cổng trống phát sáng, **đường @mention** nét đứt chạy tới node đang chọn (node được nhắc có huy hiệu "@"), vệt sáng quét trên ảnh đang tạo, menu / xem ảnh lớn / toast / panel xuất hiện mượt.
 - Header: Reset, Lưu, Lưu bản sao, Chia sẻ (xuất .json), Max Speed. Bộ chạy nằm ở side panel.
 
 ## Kiểm thử

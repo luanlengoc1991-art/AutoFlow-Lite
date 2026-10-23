@@ -105,7 +105,9 @@ export function buildFilename(pattern, ctx) {
     n: ctx.n,
     type: ctx.genType || 'image',
     model: slug(ctx.model || 'flow', 24),
-    project: ctx.project ? slug(ctx.project, 30) : ''
+    project: ctx.project ? slug(ctx.project, 30) : '',
+    // Biến thêm (vd. {node}, {workflow} của node Download).
+    ...Object.fromEntries(Object.entries(ctx.vars || {}).map(([k, v]) => [k.toLowerCase(), slug(v, 40)]))
   };
   // Hỗ trợ cả {date} và [Date] (kiểu của bản gốc); biến rỗng thì bỏ luôn dấu "_" thừa.
   const out = String(pattern || '{index}_{prompt}_{n}')

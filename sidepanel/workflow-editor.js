@@ -2,10 +2,10 @@
 // panel cấu hình node, menu chuột phải. Lưu vào chrome.storage; việc chạy do side panel đảm nhận.
 import { store } from './lib/store.js';
 import {
-  NODE_DEFS, PORT_TYPES, PROVIDER_LABEL, TEXT_AI, canConnect, portsOf, portType, createNode, newWorkflow, normalizeWorkflow, slugify, nid
+  NODE_DEFS, PORT_TYPES, PROVIDER_LABEL, TEXT_AI, canConnect, portsOf, portType, createNode, newWorkflow, normalizeWorkflow, slugify, nid, splitMultiPrompt
 } from './lib/workflow-nodes.js';
 import { instantiateTemplate } from './lib/workflow-templates.js';
-import { SEEDANCE_MODELS, SEEDANCE_RATIOS, SEEDANCE_DURATIONS } from './lib/defaults.js';
+import { SEEDANCE_MODELS, SEEDANCE_RATIOS, SEEDANCE_DURATIONS, CHAT_MODELS, CHAT_RATIOS } from './lib/defaults.js';
 import * as flow from './lib/flow.js';
 
 const $ = (id) => document.getElementById(id);
@@ -342,11 +342,11 @@ function bodyHtml(n) {
           <button class="tog sm corner-tog ${d.enabled ? 'on' : ''}" data-act="toggle-enabled" title="Bật/tắt node"></button>
           ${previewHtml(n)}
         </div>
-        ${peekHtml(n)}<div class="chips"><span class="chip">Image</span><span class="chip toggle ${d.newChat !== false ? 'on' : ''}" data-toggle="newChat">Chat mới</span><span class="chip gear" data-act="config">${I.gear}</span></div>`;
+        ${peekHtml(n)}<div class="chips"><span class="chip">${d.mode === 'video' && n.type !== 'chatgpt' ? 'Video' : 'Image'}</span>${d.ratio ? `<span class="chip">${esc(d.ratio)}</span>` : ''}${d.mode === 'video' && n.type === 'grok' ? `<span class="chip">${esc(d.duration || '6s')}</span>` : ''}${(d.refs || []).length ? `<span class="chip">${d.refs.length} ref</span>` : ''}<span class="chip toggle ${d.newChat !== false ? 'on' : ''}" data-toggle="newChat">Chat mới</span>${d.autoDownload ? `<span class="chip">${I.download}</span>` : ''}<span class="chip gear" data-act="config">${I.gear}</span></div>`;
     case 'download':
-      return `<div class="nb-small">${I.download} Thư mục: <b>${esc(d.folder || '(theo workflow)')}</b><span class="chip gear" data-act="config">${I.gear}</span></div>`;
+      return `<div class="nb-small">${I.download} Thư mục: <b>${esc(d.folder || '(theo workflow)')}</b>${d.collectFlow ? ' · gom Flow' : ''}${d.imageRes || d.videoRes ? ` · ${esc([d.imageRes, d.videoRes].filter(Boolean).join('/'))}` : ''}<span class="chip gear" data-act="config">${I.gear}</span></div>`;
     case 'telegram':
-      return `<div class="nb-small">${I.send} Gửi về chat đã liên kết<span class="chip gear" data-act="config">${I.gear}</span></div>`;
+      return `<div class="nb-small">${I.send} ${d.chatId ? `Chat ${esc(d.chatId)}` : 'Chat đã liên kết'} · ${d.sendMode === 'group' ? 'gộp' : 'từng ảnh'}<span class="chip gear" data-act="config">${I.gear}</span></div>`;
     case 'delay':
       return `<div class="nb-small">${I.delay} Chờ <input type="number" min="0" max="3600" data-k="seconds" value="${esc(d.seconds)}"> giây</div>`;
     default:
@@ -402,7 +402,7 @@ function buildNode(n) {
     el.classList.add('note');
     el.style.setProperty('--nc', n.data.color);
     el.innerHTML = `<div class="card" style="width:${n.data.w}px;height:${n.data.h}px">
-      <textarea class="note-text" data-k="text" placeholder="Ghi chú / tên nhóm">${esc(n.data.text)}</textarea>
+      <textarea class="note-text" data-k="text" placeholder="Ghi chú / tên nhóm" style="font-size:${+n.data.fontSize || 14}px">${esc(n.data.text)}</textarea>
       <button class="corner-run" data-act="run-group" title="Chạy các node trong nhóm">${I.play}</button>
       <div class="resize" data-resize="1"></div></div>`;
   } else {
@@ -559,7 +559,31 @@ function renderEdges() {
     html += `<path class="wire ${flowing ? 'flow' : ''} ${count > 1 ? 'multi' : ''} ${selectedEdge === e.id ? 'selected' : ''}" d="${d}" stroke="${color}" style="color:${color}"/><path class="hit" data-edge="${e.id}" d="${d}"/>`;
   }
   if (drag?.kind === 'connect' && drag.to) html += `<path class="temp" d="${drag.reverse ? curve(drag.to, drag.from) : curve(drag.from, drag.to)}" stroke="${PORT_TYPES[drag.type].color}"/>`;
+  html += mentionLines();
   edgesEl.innerHTML = html;
+  // Cổng chưa nối: phát sáng nhẹ khi rê chuột vào node.
+  const used = new Set(wf.edges.flatMap((e) => [`${e.from.node}|out|${e.from.port}`, `${e.to.node}|in|${e.to.port}`]));
+  nodesEl.querySelectorAll('.port').forEach((p) => p.classList.toggle('empty', !used.has(`${p.closest('.node')?.dataset.node}|${p.dataset.dir}|${p.dataset.port}`)));
+}
+
+// Node đang chọn có @mention: đường nét đứt chạy từ node được nhắc tới, node được nhắc có huy hiệu "@".
+function mentionLines() {
+  const id = selection.size === 1 ? [...selection][0] : null;
+  const n = id && wf.nodes.find((x) => x.id === id);
+  const targets = new Set();
+  if (n && n.type !== 'note') {
+    const text = ['text', 'prompt', 'agentInstruction'].map((k) => n.data[k] || '').join(' ');
+    for (const m of text.matchAll(/@([a-z0-9_]+)/gi)) {
+      const src = wf.nodes.find((x) => x.id !== n.id && x.data.slug && x.data.slug.toLowerCase() === m[1].toLowerCase());
+      if (src) targets.add(src.id);
+    }
+  }
+  nodesEl.querySelectorAll('.node').forEach((el) => el.classList.toggle('being-mentioned', targets.has(el.dataset.node)));
+  if (!targets.size) return '';
+  const box = (nid) => { const r = nodeEl(nid)?.querySelector('.card')?.getBoundingClientRect(); return r ? { a: toWorld(r.right, r.top + r.height / 2), b: toWorld(r.left, r.top + r.height / 2) } : null; };
+  const me = box(id);
+  if (!me) return '';
+  return [...targets].map((t) => { const s = box(t); return s ? `<path class="mention-line" d="${curve(s.a, me.b)}"/>` : ''; }).join('');
 }
 
 // ---------- Chọn & thanh nổi ----------
@@ -1487,6 +1511,20 @@ function configFields(n) {
   const sel = (k, opts, v) => `<select data-d="${k}">${opts.map((o) => (Array.isArray(o) ? o : [o, o])).map(([val, l]) => `<option value="${esc(val)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
   const tog = (k, on) => `<button class="tog ${on ? 'on' : ''}" data-dt="${k}"></button>`;
   const providerOpts = TEXT_AI.map((p) => [p, PROVIDER_LABEL[p]]);
+  const modeOpts = [['auto', 'Auto'], ['all', 'All'], ['mention', 'Mention']];
+  // Mention Mode (Nâng cao): cách lấy prompt / ảnh tham chiếu từ node phía trước.
+  const mentionHtml = (text = 'prompt') => `<details class="adv"><summary>Mention Mode (Nâng cao)</summary>
+      <div class="grid2"><div class="field"><span class="lbl">Prompt</span>${sel('promptMode', modeOpts, d.promptMode || 'auto')}</div>
+        <div class="field"><span class="lbl">Ref</span>${sel('refMode', modeOpts, d.refMode || 'auto')}</div></div>
+      <p class="hint"><b>Auto</b>: có @mention thì chỉ dùng node được nhắc, không thì dùng tất cả. <b>All</b>: dùng mọi node nối vào. <b>Mention</b>: chỉ node được @mention trong ${text}. Gõ <code>@slug</code> của node Ảnh để chọn ảnh tham chiếu đó.</p>${slugHints(n.id)}</details>`;
+  // Ảnh tham chiếu chọn sẵn trong node (tối đa 4).
+  const refsHtml = () => `<div class="field"><span class="lbl">Ảnh tham chiếu (tối đa 4)</span>
+      <div class="results">${(d.refs || []).map((r, i) => `<div class="r"><img src="${r.dataUrl}" alt=""><a href="#" data-rmref="${i}">Xoá</a></div>`).join('')}</div>
+      ${(d.refs || []).length < 4 ? '<button class="btn-white sm" data-side="ref-add">Chọn / Tải ảnh lên</button>' : ''}</div>`;
+  const autoDl = () => `<label class="row">${tog('autoDownload', d.autoDownload)}Tự tải kết quả</label>`;
+  const advanced = (extra = '') => `<details class="adv"><summary>Cài đặt nâng cao</summary>
+      <p class="hint">Hiếm khi cần đổi. Chỉ chỉnh khi gặp lỗi / hết thời gian chờ.</p>${extra}
+      <div class="field"><span class="lbl">Thời gian chờ tối đa (giây, 0 = theo Cài đặt)</span><input class="inp" type="number" min="0" max="3600" data-d="timeoutSec" value="${esc(d.timeoutSec || 0)}"></div></details>`;
   switch (n.type) {
     case 'assistant':
       return `<div class="field"><span class="lbl">Yêu cầu cho AI (dùng @slug để chèn văn bản node khác)</span><textarea data-d="text">${esc(d.text)}</textarea>${slugHints(n.id)}</div>
@@ -1504,18 +1542,26 @@ function configFields(n) {
           <div class="field"><span class="lbl">Tỉ lệ</span>${sel('ratio', [['', 'Theo Cài đặt'], ...SEEDANCE_RATIOS], d.ratio)}</div>
           <div class="field"><span class="lbl">Thời lượng</span>${sel('duration', [['', 'Theo Cài đặt'], ...SEEDANCE_DURATIONS], d.duration)}</div>
         </div>
+        ${mentionHtml()}${autoDl()}${advanced()}
         <p class="hint">Chạy trên Dreamina (dreamina.capcut.com) bằng credit tài khoản của bạn. Nối List ảnh vào "Khung đầu": mỗi ảnh ra một video. Cùng số prompt và ảnh thì ghép 1-1.</p>`;
-    case 'prompt':
+    case 'prompt': {
+      const count = d.multi ? splitMultiPrompt(d.text).length : 0;
       return `<div class="field"><div class="lbl"><span>${I.prompt} Nội dung Prompt</span><label class="row">${tog('multi', d.multi)}<b>Multi-prompt</b></label></div>
         <textarea data-d="text" maxlength="${MAX_PROMPT}" placeholder="VD: A cute cat playing with yarn, cinematic lighting">${esc(d.text)}</textarea>
-        <div class="row"><span class="hint">${d.multi ? 'Mỗi dòng là 1 prompt riêng.' : 'Toàn bộ là 1 prompt.'}</span><span class="spacer"></span><span class="hint">${d.text.length}/${MAX_PROMPT.toLocaleString('vi')}</span></div></div>
-        <details class="adv"><summary>Mention Mode (Nâng cao)</summary>
-          <p class="hint">Dùng <code>@slug</code> để chèn văn bản của node khác; <code>{input}</code> để chèn prompt từ node nối vào. Không có <code>{input}</code> thì prompt đầu vào được nối sau nội dung này.</p>${slugHints(n.id)}</details>
-        <div class="box agent"><label class="row">${tog('agent', d.agent)}<b>Dùng AI Agent</b><span class="spacer"></span><span class="hint">ChatGPT / Claude / Gemini / Grok</span></label>
+        <div class="row"><span class="hint">${d.multi ? `${count} prompt · Cách nhau 1 dòng trống (hoặc mỗi dòng 1 prompt). Lưu node tạo mỗi prompt một cổng ra; bớt prompt thì nhánh thừa bị ngắt.` : 'Toàn bộ là 1 prompt.'}</span><span class="spacer"></span><span class="hint">${d.text.length}/${MAX_PROMPT.toLocaleString('vi')}</span></div></div>
+        ${mentionHtml('nội dung prompt')}
+        <div class="box agent"><label class="row">${tog('agent', d.agent)}<b>Dùng AI</b><span class="spacer"></span><span class="hint">ChatGPT / Claude / Gemini / Grok</span></label>
           ${d.agent ? `<div class="field"><span class="lbl">AI</span>${sel('agentProvider', providerOpts, d.agentProvider)}</div>
           <div class="field"><span class="lbl">Yêu cầu cho AI</span><textarea class="short" data-d="agentInstruction">${esc(d.agentInstruction)}</textarea></div>
-          <label class="row">${tog('agentSplit', d.agentSplit)}Tách mỗi dòng trả lời thành 1 prompt</label>` : ''}</div>
-        <p class="hint">${d.agent ? 'Output = câu trả lời của AI (chạy trên trang chat đã đăng nhập).' : 'Output = text nguyên văn (không gọi AI, không tốn quota).'}</p>`;
+          <div class="field"><span class="lbl">Thời gian chờ AI trả lời (giây, tăng lên nếu prompt dài)</span><input class="inp" type="number" min="10" max="900" data-d="agentTimeout" value="${esc(d.agentTimeout || 60)}"></div>
+          ${refsHtml()}<p class="hint">Ảnh gửi kèm prompt để AI hiểu bối cảnh. ChatGPT được khuyên dùng; Gemini đôi khi trả ảnh thay vì chữ.</p>
+          <label class="row">${tog('agentSplit', d.agentSplit)}Tách mỗi dòng trả lời thành 1 prompt</label>
+          <details class="adv"><summary>Cài đặt nâng cao</summary>
+            <label class="row">${tog('agentFallback', d.agentFallback !== false)}Dùng văn bản gốc nếu AI lỗi</label>
+            <p class="hint">Tự dùng nguyên văn bản nếu AI không trả lời (hết giờ / lỗi).</p>
+            <label class="row">${tog('agentDelete', d.agentDelete)}Xoá cuộc trò chuyện sau khi AI chạy</label></details>` : ''}</div>
+        <p class="hint">${d.agent ? 'Output = câu trả lời của AI (chạy trên trang chat đã đăng nhập).' : 'Output = văn bản nguyên văn (không gọi AI, không tốn quota).'}</p>`;
+    }
     case 'text':
       return `<div class="field"><div class="lbl">Văn bản</div><textarea data-d="text">${esc(d.text)}</textarea></div><p class="hint">Node khác dùng <code>@${esc(d.slug)}</code> để chèn văn bản này.</p>`;
     case 'extract':
@@ -1524,7 +1570,11 @@ function configFields(n) {
         ${d.mode === 'line' ? `<div class="field"><span class="lbl">Dòng số</span><input class="inp" data-d="index" value="${esc(d.index)}"></div>` : ''}
         ${d.mode === 'regex' ? `<div class="field"><span class="lbl">Regex (nhóm 1 nếu có)</span><input class="inp" data-d="pattern" value="${esc(d.pattern)}"></div>` : ''}
         ${d.mode === 'between' ? `<div class="grid2"><div class="field"><span class="lbl">Mốc đầu</span><input class="inp" data-d="start" value="${esc(d.start)}"></div><div class="field"><span class="lbl">Mốc cuối</span><input class="inp" data-d="end" value="${esc(d.end)}"></div></div>` : ''}
-        ${d.mode === 'json' ? `<div class="field"><span class="lbl">Đường dẫn (vd. prompts hoặc data.0.text)</span><input class="inp" data-d="path" value="${esc(d.path)}"></div>` : ''}`;
+        ${d.mode === 'json' ? `<div class="field"><span class="lbl">Đường dẫn (vd. prompts hoặc data.0.text)</span><input class="inp" data-d="path" value="${esc(d.path)}"></div>` : ''}
+        ${['marker', 'regex'].includes(d.mode) ? `<label class="row">${tog('strict', d.strict)}Strict mode (phân biệt hoa thường)</label>` : ''}
+        <div class="grid2"><div class="field"><span class="lbl">Khi khớp nhiều</span>${sel('multiMatch', [['all', 'Tất cả (mỗi mục 1 lượt)'], ['first', 'Đầu tiên'], ['last', 'Cuối cùng'], ['concat', 'Nối tất cả']], d.multiMatch || 'all')}</div>
+          <div class="field"><span class="lbl">Khi không tìm thấy</span>${sel('onFail', [['error', 'Báo lỗi'], ['empty', 'Trả văn bản rỗng'], ['skip', 'Bỏ qua nhánh sau'], ['fail', 'Dừng workflow']], d.onFail || 'error')}</div></div>
+        <p class="hint">Regex: nhóm 1 (nếu có) là văn bản đầu ra.</p>`;
     case 'image':
       return `<div class="results">${(d.media || []).map((m, i) => `<div class="r"><img src="${m.thumb || m.dataUrl}" alt=""><a href="#" data-rm="${i}">Xoá</a></div>`).join('') || '<p class="hint">Chưa có media.</p>'}</div>
         <div class="row"><button class="btn-white" data-side="upload">Tải lên</button><button class="btn-white" data-side="library">Từ thư viện</button></div>
@@ -1541,25 +1591,53 @@ function configFields(n) {
           <div class="field"><span class="lbl">Thời lượng</span>${sel('duration', [['', 'Giữ như Flow'], '4s', '6s', '8s'], d.duration)}</div>` : ''}
         </div>
         ${kind === 'image' || d.videoMode === 'ingredients' ? `<label class="row">${tog('perImage', d.perImage)}Mỗi ảnh tham chiếu một lượt (List 7 ảnh → 7 kết quả)</label>` : ''}
+        ${mentionHtml()}${autoDl()}${advanced()}
         <p class="hint">Mỗi prompt đầu vào tạo 1 lượt. Cổng ảnh tham chiếu nhận nhiều ảnh; video Frames dùng cổng Khung đầu / Khung cuối. Cổng ra "Khung cuối video" lấy frame cuối để nối sang video tiếp theo.</p>`;
     }
     case 'chatgpt':
     case 'gemini':
-    case 'grok':
-      return `<div class="field"><span class="lbl">Prompt riêng (tuỳ chọn, dùng {input} và @slug)</span><textarea class="short" data-d="prompt">${esc(d.prompt)}</textarea>${slugHints(n.id)}</div>
+    case 'grok': {
+      const p = n.type, video = p !== 'chatgpt' && d.mode === 'video';
+      const models = (CHAT_MODELS[p] || []).map((m) => [m.value, m.label]);
+      const ratios = CHAT_RATIOS[p] || [];
+      return `<div class="field"><span class="lbl">Prompt riêng (tuỳ chọn, dùng {input} và @slug)</span><textarea class="short" data-d="prompt" placeholder="VD: A futuristic robot with neon lights, cinematic">${esc(d.prompt)}</textarea></div>
+        ${mentionHtml()}
+        <div class="grid2">
+          <div class="field"><span class="lbl">Chế độ</span>${p === 'chatgpt' ? sel('mode', [['image', 'Ảnh']], 'image') : sel('mode', [['image', 'Ảnh'], ['video', 'Video']], d.mode || 'image')}</div>
+          <div class="field"><span class="lbl">Tỷ lệ</span>${sel('ratio', [['', 'Theo Cài đặt'], ...ratios], d.ratio || '')}</div>
+          ${p === 'grok'
+            ? `<div class="field"><span class="lbl">Chất lượng ảnh</span>${sel('quality', [['', 'Theo Cài đặt'], ['fast', 'Speed'], ['quality', 'Quality']], d.quality || '')}</div>
+               ${video ? `<div class="field"><span class="lbl">Thời lượng video</span>${sel('duration', ['6s', '10s'], d.duration || '6s')}</div>
+               <div class="field"><span class="lbl">Độ phân giải</span>${sel('resolution', ['480p', '720p'], d.resolution || '720p')}</div>` : ''}`
+            : `<div class="field"><span class="lbl">Model</span>${sel('model', [['', 'Theo Cài đặt'], ...models], d.model || '')}</div>`}
+        </div>
+        ${refsHtml()}
         <label class="row">${tog('newChat', d.newChat !== false)}Mở cuộc trò chuyện mới cho mỗi prompt</label>
-        <p class="hint">Chạy trên trang ${esc(PROVIDER_LABEL[n.type])} đã đăng nhập; ảnh trả về là kết quả của node.</p>`;
+        ${autoDl()}
+        ${advanced(`${p === 'chatgpt' ? `<div class="field"><span class="lbl">Cách tạo ảnh</span>${sel('prefix', [['auto', 'Auto (gửi nguyên prompt)'], ['always', 'Luôn thêm "Generate an image:"']], d.prefix || 'auto')}</div>` : ''}
+          ${p !== 'grok' ? `<div class="field"><span class="lbl">Xoá cuộc trò chuyện sau khi tạo</span>${sel('deleteAfter', [['', 'Theo Cài đặt'], ['yes', 'Có'], ['no', 'Không']], d.deleteAfter || '')}</div>` : ''}`)}
+        <p class="hint">Chạy trên trang ${esc(PROVIDER_LABEL[p])} đã đăng nhập (hạn mức gói của bạn).${video ? ' Cổng ra "Khung cuối video" lấy frame cuối để nối tiếp.' : ''}</p>`;
+    }
     case 'download':
-      return `<div class="field"><span class="lbl">Thư mục con (tuỳ chọn)</span><input class="inp" data-d="folder" value="${esc(d.folder)}" placeholder="để trống = AutoFlow/${esc(wf.name)}"></div>
-        <p class="hint">Bản ảnh/video tải về theo cài đặt độ phân giải trong side panel (bản gốc hoặc upscale).</p>`;
+      return `<div class="grid2">
+          <div class="field"><span class="lbl">Độ phân giải ảnh</span>${sel('imageRes', [['', 'Theo Cài đặt'], ['original', 'Gốc'], ['2k', '2K'], ['4k', '4K']], d.imageRes || '')}</div>
+          <div class="field"><span class="lbl">Độ phân giải video</span>${sel('videoRes', [['', 'Theo Cài đặt'], ['original', 'Gốc 720p'], ['1080p', '1080p'], ['4k', '4K']], d.videoRes || '')}</div></div>
+        <label class="row">${tog('collectFlow', d.collectFlow)}Gom tất cả ảnh trên Flow</label>
+        <p class="hint">Tự lấy mọi ảnh/video trong project Google Flow đang mở (kể cả không nối vào node).</p>
+        <div class="field"><span class="lbl">Tên thư mục</span><input class="inp" data-d="folder" value="${esc(d.folder)}" placeholder="để trống = AutoFlow/${esc(wf.name)}"><span class="hint">Biến: {workflow}, {date}, {time}</span></div>
+        <div class="field"><span class="lbl">Tên file</span><input class="inp" data-d="filePattern" value="${esc(d.filePattern || '')}" placeholder="để trống = theo Cài đặt"><span class="hint">Biến: {prompt}, {node}, {index}, {date}, {time}, {n}</span></div>
+        <p class="hint">Tải kết quả từ node phía trước. Bản 2K/4K/1080p tải qua menu Download của Google Flow.</p>`;
     case 'telegram':
-      return `<div class="field"><span class="lbl">Chú thích (tuỳ chọn, dùng {prompt})</span><input class="inp" data-d="caption" value="${esc(d.caption)}" placeholder="để trống = prompt của kết quả"></div>
+      return `<div class="field"><span class="lbl">Chat ID (để trống = chat đã liên kết)</span><input class="inp" data-d="chatId" value="${esc(d.chatId || '')}" placeholder="VD: 123456789"></div>
+        <div class="field"><span class="lbl">Gửi ảnh</span>${sel('sendMode', [['single', 'Từng ảnh (nhiều tin nhắn)'], ['group', 'Gộp (1 tin nhắn)']], d.sendMode || 'single')}</div>
+        <div class="field"><span class="lbl">Chú thích (tuỳ chọn, dùng {prompt})</span><input class="inp" data-d="caption" value="${esc(d.caption)}" placeholder="VD: Kết quả workflow..."></div>
         <p class="hint">Ảnh / video gửi kèm chú thích, văn bản gửi thành tin nhắn. Cần token bot và chat đã liên kết (/start) trong Cài đặt → AI Agent / Bot. Cổng ra chuyển tiếp nguyên dữ liệu cho node sau.</p>`;
     case 'delay':
       return `<div class="field"><span class="lbl">Số giây chờ</span><input class="inp" type="number" min="0" max="3600" data-d="seconds" value="${esc(d.seconds)}"></div>`;
     case 'note':
       return `<div class="field"><span class="lbl">Nội dung</span><textarea class="short" data-d="text">${esc(d.text)}</textarea></div>
-        <div class="field"><span class="lbl">Màu</span><div class="row">${['#c6f432', '#3b82f6', '#a855f7', '#f5a524', '#ff6b6b', '#14b8a6'].map((c) => `<button class="tog" style="background:${c};width:22px;height:22px" data-color="${c}"></button>`).join('')}</div></div>`;
+        <div class="field"><span class="lbl">Màu khung</span><div class="row">${['#c6f432', '#3b82f6', '#a855f7', '#f5a524', '#ff6b6b', '#14b8a6'].map((c) => `<button class="tog" style="background:${c};width:22px;height:22px" data-color="${c}"></button>`).join('')}</div></div>
+        <div class="field"><span class="lbl">Cỡ chữ</span>${sel('fontSize', [12, 14, 18, 24, 32, 48, 64], d.fontSize || 14)}</div>`;
     default:
       return '';
   }
@@ -1636,7 +1714,7 @@ side.addEventListener('input', (e) => {
 side.addEventListener('change', (e) => {
   const k = e.target.dataset.d;
   if (!k || !draft || e.target.tagName !== 'SELECT') return;
-  draft[k] = k === 'quantity' ? +e.target.value : e.target.value;
+  draft[k] = k === 'quantity' || k === 'fontSize' ? +e.target.value : e.target.value;
   if (k === 'genType') { draft.model = ''; draft.ratio = ''; }
   if (['genType', 'mode', 'agentProvider', 'videoMode'].includes(k)) openSide(sideNodeId, 'config');
 });
@@ -1648,7 +1726,7 @@ side.addEventListener('click', (e) => {
   const sm = e.target.closest('[data-slugmode]');
   if (sm) { slugMode = sm.dataset.slugmode === '1'; openSide(n.id, 'config'); return; }
   const dt = e.target.closest('[data-dt]');
-  if (dt) { const k = dt.dataset.dt; draft[k] = k === 'newChat' ? draft.newChat === false : !draft[k]; openSide(n.id, 'config'); return; }
+  if (dt) { const k = dt.dataset.dt; draft[k] = ['newChat', 'agentFallback'].includes(k) ? draft[k] === false : !draft[k]; openSide(n.id, 'config'); return; }
   const color = e.target.closest('[data-color]');
   if (color) { draft.color = color.dataset.color; return; }
   const ins = e.target.closest('[data-insert]');
@@ -1657,6 +1735,8 @@ side.addEventListener('click', (e) => {
     if (ta) { ta.setRangeText(`${ins.dataset.insert} `, ta.selectionStart, ta.selectionEnd, 'end'); ta.dispatchEvent(new Event('input', { bubbles: true })); ta.focus(); }
     return;
   }
+  const rmref = e.target.closest('[data-rmref]');
+  if (rmref) { e.preventDefault(); draft.refs = (draft.refs || []).filter((_, i) => i !== +rmref.dataset.rmref); openSide(n.id, 'config'); return; }
   const rm = e.target.closest('[data-rm]');
   if (rm) { e.preventDefault(); draft.media = draft.media.filter((_, i) => i !== +rm.dataset.rm); openSide(n.id, 'config'); return; }
   const lb = e.target.closest('img[data-lb]');
@@ -1676,6 +1756,17 @@ side.addEventListener('click', (e) => {
     openSide(n.id, 'config');
   }
   if (act === 'upload') openFilePicker(n.id);
+  if (act === 'ref-add') {
+    const input = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*', multiple: true });
+    input.addEventListener('change', async () => {
+      for (const f of [...input.files].slice(0, 4 - (draft.refs || []).length)) {
+        const dataUrl = await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(f); });
+        draft.refs = [...(draft.refs || []), { name: f.name, mime: f.type, dataUrl }];
+      }
+      openSide(n.id, 'config');
+    });
+    input.click();
+  }
   if (act === 'library') openLibrary({ x: n.x + 40, y: n.y + 40 });
   if (act === 'save') {
     if (n.type !== 'note') {
@@ -1683,7 +1774,12 @@ side.addEventListener('click', (e) => {
       if (draft.name !== n.data.name && (!n.data.slug || n.data.slug === slugify(n.data.name))) draft.slug = uniqueSlug(draft.name, n.id);
     }
     setData(n.id, structuredClone(draft));
-    if (n.type === 'note') renderAll();
+    // Multi-prompt bớt prompt: ngắt dây của cổng ra không còn.
+    const outNames = new Set(portsOf(n, 'out').map((p) => p.name));
+    const before = wf.edges.length;
+    wf.edges = wf.edges.filter((e) => e.from.node !== n.id || outNames.has(e.from.port));
+    if (wf.edges.length !== before) dirty();
+    if (n.type === 'note' || n.type === 'prompt' || wf.edges.length !== before) renderAll();
     toast('Đã lưu node');
     closeSide();
   }

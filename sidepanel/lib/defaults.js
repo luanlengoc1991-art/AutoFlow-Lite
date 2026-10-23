@@ -73,14 +73,20 @@ export function applyFlowDefaults(task, s, options) {
 }
 
 // Tuỳ chọn gửi sang trang chat: model cần chọn, tỉ lệ (ghi vào prompt khi tạo ảnh/video), chế độ Grok.
+// task.chatOverrides: tuỳ chọn riêng của node workflow (model, ratio, mode, quality, duration, resolution, prefix).
 export function chatOptions(provider, task, s) {
+  const o = task.chatOverrides || {};
   const media = (task.chatMode || 'image') !== 'text';
-  const model = CHAT_MODELS[provider]?.find((m) => m.value === (provider === 'grok' ? s.grokQuality : s[`${provider}Model`]));
-  const ratio = media ? s[`${provider}Ratio`] || '' : '';
-  const video = media && provider === 'grok' && s.grokMode === 'video';
+  const modelValue = provider === 'grok' ? o.quality || s.grokQuality : o.model || s[`${provider}Model`];
+  const model = CHAT_MODELS[provider]?.find((m) => m.value === modelValue);
+  const ratio = media ? o.ratio || s[`${provider}Ratio`] || '' : '';
+  const mode = o.mode || (provider === 'grok' ? s.grokMode : provider === 'gemini' ? s.geminiMode : 'image');
+  const video = media && (provider === 'grok' || provider === 'gemini') && mode === 'video';
   let prompt = task.prompt;
+  // ChatGPT "Cách tạo ảnh": always = luôn thêm câu yêu cầu tạo ảnh ở đầu prompt.
+  if (media && !video && o.prefix === 'always' && !/^(create|generate|draw|make)\b/i.test(prompt)) prompt = `Generate an image: ${prompt}`;
   if (ratio) prompt = `${prompt.replace(/\s+$/, '')}\n\nAspect ratio: ${ratio}.`;
-  if (video) prompt = `${prompt.replace(/\s+$/, '')}\n\nGenerate a video.`;
+  if (video) prompt = `${prompt.replace(/\s+$/, '')}\n\nGenerate a video${o.duration ? `, ${o.duration} long` : ''}${o.resolution ? `, ${o.resolution}` : ''}.`;
   return {
     prompt,
     model: model ? { label: model.label, match: model.match.source, flags: model.match.flags } : null,

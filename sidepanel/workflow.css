@@ -367,3 +367,48 @@ details.adv summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 /* Nút "chạy các node nối từ đây" có số lượng. */
 .node-bar button.wide { width: auto; padding: 0 8px; gap: 3px; display: inline-flex; align-items: center; color: var(--accent); }
 .node-bar button.wide b { font-size: 11px; }
+
+/* ---------- Hiệu ứng (theo trình soạn TobyFlow) ---------- */
+/* Node đang chọn / lỗi: sáng nhẹ theo nhịp. */
+.node.selected:not(.running) .card { animation: af-node-pulse 2.6s ease-in-out infinite; }
+.node.error .card { box-shadow: 0 0 0 1px var(--danger), 0 0 14px rgba(239,68,68,.35); animation: af-node-pulse-strong 2.2s ease-in-out infinite; }
+@keyframes af-node-pulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.08); } }
+@keyframes af-node-pulse-strong { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.12); } }
+/* Dây đang chọn: phát sáng theo màu dây. */
+#edges path.wire.selected { animation: af-wire-glow 2.4s ease-in-out infinite; }
+@keyframes af-wire-glow {
+  0%, 100% { filter: drop-shadow(0 0 3px currentColor) drop-shadow(0 0 8px currentColor) brightness(1.35); }
+  50% { filter: drop-shadow(0 0 6px currentColor) drop-shadow(0 0 14px currentColor) brightness(1.55); }
+}
+/* Dây đang kéo để nối. */
+#edges path.temp { animation: af-connecting 1s linear infinite; }
+@keyframes af-connecting { 0% { stroke-opacity: .55; stroke-dashoffset: 0; } 50% { stroke-opacity: 1; stroke-dashoffset: -5; } 100% { stroke-opacity: .55; stroke-dashoffset: -11; } }
+/* Cổng nối được khi đang kéo dây / cổng còn trống khi rê chuột vào node. */
+.port.compatible { animation: af-port-pulse 1s ease-in-out infinite; }
+@keyframes af-port-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(198,244,50,.0); } 50% { box-shadow: 0 0 0 5px rgba(198,244,50,.25); } }
+.node:hover .port.empty { animation: af-port-empty 2.4s ease-in-out infinite; }
+@keyframes af-port-empty { 0%, 100% { box-shadow: 0 2px 6px rgba(0,0,0,.25); } 50% { box-shadow: 0 2px 6px rgba(0,0,0,.25), 0 0 0 4px rgba(255,255,255,.12); } }
+/* @mention: đường nét đứt chạy + node được nhắc có huy hiệu "@". */
+#edges path.mention-line { fill: none; stroke: #3b82f6; stroke-width: 2; stroke-dasharray: 6 4; opacity: .75; pointer-events: none; animation: af-mention-flow 1s linear infinite; }
+@keyframes af-mention-flow { from { stroke-dashoffset: 20; } to { stroke-dashoffset: 0; } }
+.node.being-mentioned:not(.running) .card { box-shadow: 0 0 0 2px #3b82f6, 0 0 12px rgba(59,130,246,.4); animation: af-mention-pulse 2s ease-in-out infinite; }
+.node.being-mentioned::before { content: "@"; position: absolute; top: -8px; right: -8px; width: 18px; height: 18px; background: #3b82f6; color: #fff; font-size: 11px; font-weight: 700; border-radius: 50%; display: flex; align-items: center; justify-content: center; z-index: 10; box-shadow: 0 2px 4px rgba(0,0,0,.25); }
+@keyframes af-mention-pulse { 0%, 100% { box-shadow: 0 0 0 2px #3b82f6, 0 0 12px rgba(59,130,246,.4); } 50% { box-shadow: 0 0 0 3px #3b82f6, 0 0 20px rgba(59,130,246,.6); } }
+/* Ảnh xem trước đang tạo: vệt sáng quét ngang. */
+.node.running .nb-media { position: relative; overflow: hidden; }
+.node.running .nb-media::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,.10) 50%, transparent 70%); background-size: 200% 100%; animation: af-sweep 1.6s ease-in-out infinite; }
+@keyframes af-sweep { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+/* Menu chuột phải, xem ảnh lớn, toast, panel cấu hình: xuất hiện mượt. */
+.menu { animation: af-menu-in .12s ease-out; transform-origin: top left; }
+@keyframes af-menu-in { from { opacity: 0; transform: scale(.96) translateY(-4px); } to { opacity: 1; transform: none; } }
+.lightbox { animation: af-fade-in .18s ease-out; }
+.lightbox img, .lightbox video { animation: af-zoom-in .2s cubic-bezier(.34,1.56,.64,1); }
+@keyframes af-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes af-zoom-in { from { transform: scale(.92); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.toast { animation: af-toast-in .25s ease-out; }
+@keyframes af-toast-in { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.side:not([hidden]) { animation: af-slide-in .18s ease-out; }
+@keyframes af-slide-in { from { opacity: .4; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .node .card, #edges path, .port, .menu, .lightbox, .lightbox img, .toast, .side, .node.running .nb-media::after { animation: none !important; }
+}
