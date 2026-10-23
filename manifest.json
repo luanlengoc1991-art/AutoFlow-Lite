@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AutoFlow Lite",
   "short_name": "AutoFlow",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Tự động hoá Google Flow, ChatGPT, Claude, Gemini, Grok, Seedance: chạy hàng loạt prompt ảnh/video, workflow, ảnh tham chiếu, tự tải kết quả.",
   "icons": {
     "16": "icons/icon-16.png",

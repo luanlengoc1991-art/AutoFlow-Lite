@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AutoFlow</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="skin.css">
 </head>
 <body>
   <!-- Biểu tượng SVG dùng chung -->
@@ -44,18 +45,23 @@
   </svg>
 
   <header class="topbar">
-    <div class="logo"><svg><use href="#i-spark"/></svg></div>
+    <div class="brand"><div class="logo"><svg><use href="#i-spark"/></svg></div><span class="brand-title">AutoFlow</span></div>
     <div class="top-actions">
-      <button id="flow-status" class="flow-pill" title="Trạng thái kết nối Google Flow"><span class="dot"></span><span class="label">Flow</span></button>
+      <button id="btn-top-capture" class="icon-btn" title="Chụp màn hình tab đang mở làm ảnh tham chiếu"><svg><use href="#i-refimg"/></svg></button>
+      <button id="btn-top-image" class="icon-btn" title="Prompt từ ảnh"><svg><use href="#i-image"/></svg></button>
       <button id="btn-settings" class="icon-btn" title="Cài đặt"><svg><use href="#i-gear"/></svg></button>
     </div>
   </header>
+  <div class="project-row">
+    <button id="flow-status" class="project-btn" title="Trạng thái kết nối Google Flow"><span class="dot"></span><span class="project-name" id="project-name">—</span><span class="label">Flow</span></button>
+    <button id="project-new" class="project-new" title="Mở Google Flow để tạo project mới"><svg><use href="#i-plus"/></svg></button>
+  </div>
 
   <nav class="tabs" role="tablist">
-    <button class="tab active" data-tab="gen" role="tab"><svg><use href="#i-spark"/></svg>Gen</button>
-    <button class="tab" data-tab="workflow" role="tab"><svg><use href="#i-flow"/></svg>Workflow</button>
-    <button class="tab" data-tab="prompts" role="tab"><svg><use href="#i-book"/></svg>Prompts</button>
-    <button class="tab" data-tab="tasks" role="tab"><svg><use href="#i-copy"/></svg>Tasks</button>
+    <button class="tab active" data-tab="gen" role="tab"><span>Gen</span></button>
+    <button class="tab" data-tab="workflow" role="tab"><span>Workflow</span></button>
+    <button class="tab" data-tab="prompts" role="tab"><span>Prompts</span></button>
+    <button class="tab" data-tab="tasks" role="tab"><span>Tasks</span></button>
     <span class="tab-sep"></span>
     <button class="tab icon-only" data-tab="photos" role="tab" title="Ảnh trong Flow"><svg><use href="#i-image"/></svg></button>
     <button class="tab icon-only" data-tab="tools" role="tab" title="Công cụ"><svg><use href="#i-shapes"/></svg></button>
@@ -95,10 +101,10 @@
       <p class="prompt-hint" id="prompt-hint">○ Tách mỗi prompt bằng một dòng trống</p>
 
       <div class="provider" id="provider-row">
-        <button class="prov" data-provider="flow"><span class="g-dot"></span>Flow</button>
-        <button class="prov" data-provider="chatgpt"><span class="p-dot" style="background:#10a37f"></span>ChatGPT</button>
-        <button class="prov" data-provider="gemini"><span class="p-dot" style="background:linear-gradient(135deg,#4285f4,#a142f4)"></span>Gemini</button>
-        <button class="prov" data-provider="grok"><span class="p-dot" style="background:#e8e8e8"></span>Grok</button>
+        <button class="prov" data-provider="flow">Google Flow</button>
+        <button class="prov" data-provider="chatgpt">ChatGPT</button>
+        <button class="prov" data-provider="grok">Grok</button>
+        <button class="prov" data-provider="gemini">Gemini</button>
       </div>
 
       <div id="chat-controls" hidden>
@@ -166,7 +172,7 @@
       </div>
       <div class="ref-zone">
         <button class="dropzone" id="ref-drop"><svg><use href="#i-upload"/></svg>Chọn ảnh / Kéo thả vào đây</button>
-        <button class="btn ghost" id="ref-capture" title="Chụp màn hình tab đang mở làm ảnh tham chiếu">📷 Chụp màn hình</button>
+        <button class="ref-capture" id="ref-capture" title="Chụp màn hình tab đang mở làm ảnh tham chiếu"><svg><use href="#i-refimg"/></svg></button>
         <input type="file" id="ref-file" accept="image/*" multiple hidden>
         <div class="ref-thumbs" id="ref-thumbs"></div>
       </div>

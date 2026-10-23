@@ -381,8 +381,8 @@ function portsHtml(n) {
     const type = portType(n, port);
     return `<div class="port ${dir} ${port.name === 'edit' ? 'edit-port' : ''}" data-dir="${dir}" data-port="${port.name}" data-type="${type}" style="${style}">${port.name === 'edit' ? '✎' : portGlyph(type)}<span class="tip">${esc(port.label)} · ${esc(PORT_TYPES[type].label)}</span></div>`;
   };
-  return outs.map((port, i) => p(port, 'out', `top:${34 + i * 32}px`)).join('')
-    + ins.map((port, i) => p(port, 'in', `bottom:${(n.type === 'generate' || NODE_DEFS[n.type].provider ? 46 : 16) + (ins.length - 1 - i) * 32}px`)).join('');
+  return outs.map((port, i) => p(port, 'out', `top:${30 + i * 40}px`)).join('')
+    + ins.map((port, i) => p(port, 'in', `bottom:${(n.type === 'generate' || NODE_DEFS[n.type].provider ? 46 : 16) + (ins.length - 1 - i) * 40}px`)).join('');
 }
 
 function statusOf(n) {

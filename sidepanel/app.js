@@ -1537,6 +1537,8 @@ async function refreshFlowStatus() {
   const label = pill.querySelector('.label');
   try {
     const tab = await flow.findFlowTab();
+    // Dòng project: tên project (tiêu đề tab Flow, bỏ phần " - Flow").
+    $('project-name').textContent = tab && /\/project\//.test(tab.url || '') ? (tab.title || '').replace(/\s*[-|–]\s*(Google )?Flow.*$/i, '').trim() || 'Project' : '—';
     if (!tab) { dot.className = 'dot'; label.textContent = 'Mở Flow'; pill.title = 'Chưa mở Google Flow'; return; }
     const p = await flow.ensureContent(tab.id);
     if (p?.editor && p?.submit) { dot.className = 'dot ok'; label.textContent = 'Flow'; pill.title = `Đã kết nối${p.settings?.model ? ' · ' + p.settings.model : ''}`; }
@@ -1547,6 +1549,9 @@ async function refreshFlowStatus() {
   }
 }
 $('flow-status').addEventListener('click', () => flow.openFlow());
+$('project-new').addEventListener('click', () => chrome.tabs.create({ url: 'https://flow.google.com/' }));
+$('btn-top-capture').addEventListener('click', () => { showTab('gen'); $('ref-capture').click(); });
+$('btn-top-image').addEventListener('click', (e) => $('btn-image-prompt').dispatchEvent(new MouseEvent('click', { shiftKey: e.shiftKey })));
 
 // ---------- Lệnh từ bảng nổi / phím tắt ----------
 chrome.runtime.onMessage.addListener((msg) => {
