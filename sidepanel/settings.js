@@ -2,12 +2,14 @@
 import { store, DEFAULT_SETTINGS } from './lib/store.js';
 import { checkAccount, checkAll, STATE_TEXT, connectAccount } from './lib/accounts.js';
 import { PROVIDERS } from './lib/providers.js';
-import { FLOW_IMAGE_MODELS, FLOW_VIDEO_MODELS, FLOW_RATIOS, FLOW_DURATIONS, CHAT_MODELS, CHAT_RATIOS } from './lib/defaults.js';
+import { FLOW_IMAGE_MODELS, FLOW_VIDEO_MODELS, FLOW_RATIOS, FLOW_DURATIONS, CHAT_MODELS, CHAT_RATIOS, SEEDANCE_MODELS, SEEDANCE_RATIOS, SEEDANCE_DURATIONS } from './lib/defaults.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const COLORS = { flow: 'conic-gradient(#4285f4 0 25%, #ea4335 0 50%, #fbbc05 0 75%, #34a853 0)', chatgpt: '#10a37f', gemini: 'linear-gradient(135deg,#4285f4,#a142f4)', grok: '#e5e5e5' };
+const COLORS = { flow: 'conic-gradient(#4285f4 0 25%, #ea4335 0 50%, #fbbc05 0 75%, #34a853 0)', chatgpt: '#10a37f', gemini: 'linear-gradient(135deg,#4285f4,#a142f4)', grok: '#e5e5e5', claude: '#d97757', seedance: 'linear-gradient(135deg,#00c2ff,#7b61ff)' };
 const NOTES = {
+  claude: 'Viết prompt, phân tích ảnh bằng Claude (không tạo ảnh). Hạn mức theo gói Claude (Free / Pro / Max).',
+  seedance: 'Tạo video/ảnh Seedance trên Dreamina (CapCut). Tính vào credit của tài khoản Dreamina.',
   flow: 'Tạo ảnh/video bằng Veo, Nano Banana… Hạn mức theo gói Google AI (Free / Pro / Ultra).',
   chatgpt: 'Viết prompt, tạo ảnh bằng ChatGPT. Hạn mức theo gói ChatGPT (Free / Plus / Pro).',
   gemini: 'Viết prompt, tạo ảnh bằng Gemini. Hạn mức theo gói Google AI.',
@@ -80,6 +82,9 @@ function listOptions(name) {
   if (name === 'videoModels') return merge(o.video?.models || [], FLOW_VIDEO_MODELS);
   if (name === 'ratios') return merge(o.image?.ratios || [], o.video?.ratios || [], FLOW_RATIOS);
   if (name === 'durations') return merge(o.video?.durations || [], FLOW_DURATIONS);
+  if (name === 'seedanceModels') return SEEDANCE_MODELS.map((v) => [v, v]);
+  if (name === 'seedanceRatios') return SEEDANCE_RATIOS.map((v) => [v, ratioLabel(v)]);
+  if (name === 'seedanceDurations') return SEEDANCE_DURATIONS.map((v) => [v, v]);
   const [kind, p] = name.split(':');
   if (kind === 'model') return CHAT_MODELS[p].map((m) => [m.value, m.label]);
   if (kind === 'ratio') return CHAT_RATIOS[p].map(([v, l]) => [v, ratioLabel(v, l)]);

@@ -113,6 +113,23 @@
           <label>Chất lượng ảnh<select data-s="grokQuality" data-list="model:grok"></select></label>
         </div>
         <label class="check"><input type="checkbox" data-s="grokAutoClose"> Tự động đóng tab Grok sau khi xong</label>
+
+        <h2><span class="ph" style="background:#d97757"></span>Claude</h2>
+        <div class="grid2">
+          <label>Model Claude mặc định<select data-s="claudeModel" data-list="model:claude"></select></label>
+        </div>
+        <label class="check"><input type="checkbox" data-s="claudeAutoClose"> Tự đóng tab Claude sau khi xong</label>
+        <label class="check"><input type="checkbox" data-s="claudeDeleteAfter"> Xoá cuộc trò chuyện Claude sau khi xong</label>
+        <p class="hint">Claude dùng cho node Assistant / AI Agent (viết prompt, phân tích ảnh). Claude không tạo ảnh.</p>
+
+        <h2><span class="ph" style="background:linear-gradient(135deg,#00c2ff,#7b61ff)"></span>Seedance (Dreamina)</h2>
+        <div class="grid2">
+          <label>Model mặc định<select data-s="seedanceModel" data-list="seedanceModels"></select></label>
+          <label>Tỷ lệ mặc định<select data-s="seedanceRatio" data-list="seedanceRatios"></select></label>
+          <label>Thời lượng mặc định<select data-s="seedanceDuration" data-list="seedanceDurations"></select></label>
+        </div>
+        <label class="check"><input type="checkbox" data-s="seedanceAutoClose"> Tự đóng tab Dreamina sau khi xong</label>
+        <p class="hint">Đăng nhập dreamina.capcut.com trong trình duyệt này. Mỗi lượt tạo trừ credit của tài khoản Dreamina; hết credit thì hàng đợi tự dừng.</p>
         <p class="hint">Model / chất lượng được chọn qua menu của trang; nếu trang không có lựa chọn đó, AutoFlow giữ model hiện tại và ghi cảnh báo vào Nhật ký.</p>
       </div>
 
@@ -140,7 +157,7 @@
     <section class="pane" id="pane-accounts">
       <div class="banner">
         <h3>Kết nối tài khoản AI của bạn</h3>
-        <p>AutoFlow điều khiển trực tiếp các trang Google Flow, ChatGPT, Gemini, Grok bằng <b>phiên đăng nhập trên trình duyệt này</b>.
+        <p>AutoFlow điều khiển trực tiếp các trang Google Flow, ChatGPT, Claude, Gemini, Grok, Seedance (Dreamina) bằng <b>phiên đăng nhập trên trình duyệt này</b>.
           Mọi lượt tạo ảnh/video/prompt được tính vào <b>hạn mức gói tài khoản của bạn</b> (Free / Plus / Pro / Ultra…). Không cần API key, không qua server trung gian.</p>
       </div>
       <div class="row"><span class="spacer"></span><button class="btn" id="check-all">↻ Kiểm tra tất cả</button></div>

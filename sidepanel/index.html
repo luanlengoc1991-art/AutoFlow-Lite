@@ -337,11 +337,11 @@
       <h3>Hiệu chỉnh giao diện Flow</h3>
       <p class="hint">Nếu trang đổi giao diện và extension không tìm thấy nút, bấm "Chẩn đoán" rồi gửi file cho người hỗ trợ, hoặc tự thêm CSS selector (JSON). Flow:
         <code>editor</code>, <code>submit</code>, <code>settings</code>, <code>settingsPanel</code>, <code>modelPicker</code>, <code>addButton</code>.
-        Chat: <code>{"chatgpt": {"composer": [], "send": [], "stop": [], "response": []}}</code> (tương tự <code>gemini</code>, <code>grok</code>).</p>
+        Chat: <code>{"chatgpt": {"composer": [], "send": [], "stop": [], "response": []}}</code> (tương tự <code>gemini</code>, <code>grok</code>, <code>claude</code>). Seedance: <code>{"seedance": {"composer": [], "submit": [], "modelPicker": [], "results": []}}</code>.</p>
       <textarea data-setting="selectors" rows="4" spellcheck="false" placeholder='{"submit": ["button[aria-label=&quot;Create&quot;]"]}'></textarea>
       <div class="btn-row">
         <select id="diag-provider" class="pill-select">
-          <option value="flow">Flow</option><option value="chatgpt">ChatGPT</option><option value="gemini">Gemini</option><option value="grok">Grok</option>
+          <option value="flow">Flow</option><option value="chatgpt">ChatGPT</option><option value="gemini">Gemini</option><option value="grok">Grok</option><option value="claude">Claude</option><option value="seedance">Seedance</option>
         </select>
         <button class="btn" id="btn-diagnose"><svg><use href="#i-download"/></svg>Chẩn đoán (xuất file)</button>
         <button class="btn" id="btn-sync2"><svg><use href="#i-sync"/></svg>Đồng bộ model</button>

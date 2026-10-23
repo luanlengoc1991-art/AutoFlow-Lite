@@ -22,7 +22,7 @@ export const ASSISTANT_STYLES = [
   { cat: 'Fitness', id: 'fitness', name: 'Tập luyện', color: '#06b6d4', guide: 'energetic fitness shots, clear exercise form, gym or outdoor lighting' }
 ];
 
-const PROVIDERS = [['chatgpt', 'ChatGPT', '#10a37f'], ['gemini', 'Gemini', '#7c6cf2'], ['grok', 'Grok', '#e5e5e5']];
+const PROVIDERS = [['chatgpt', 'ChatGPT', '#10a37f'], ['gemini', 'Gemini', '#7c6cf2'], ['grok', 'Grok', '#e5e5e5'], ['claude', 'Claude', '#d97757']];
 
 function buildRequest(o) {
   const style = ASSISTANT_STYLES.find((s) => s.id === o.styleId);

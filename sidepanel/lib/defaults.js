@@ -22,8 +22,29 @@ export const CHAT_MODELS = {
   grok: [
     { value: 'fast', label: 'Nhanh', match: /fast|speed|nhanh/i },
     { value: 'quality', label: 'Chất lượng cao', match: /quality|chất lượng/i }
+  ],
+  claude: [
+    { value: 'sonnet', label: 'Sonnet', match: /sonnet/i },
+    { value: 'opus', label: 'Opus', match: /opus/i },
+    { value: 'haiku', label: 'Haiku', match: /haiku/i }
   ]
 };
+
+// Seedance trên Dreamina: tên model đúng như chữ trên menu của trang.
+export const SEEDANCE_MODELS = ['Seedance 2.0', 'Seedance 2.0 Fast', 'Seedance 1.5 Pro', 'Seedance 1.0 Pro', 'Seedance 1.0 Lite'];
+export const SEEDANCE_RATIOS = ['9:16', '16:9', '1:1', '3:4', '4:3', '21:9'];
+export const SEEDANCE_DURATIONS = ['4s', '5s', '6s', '8s', '10s', '12s', '15s'];
+
+// Task Seedance: trường để trống lấy mặc định trong Cài đặt → Nền tảng AI.
+export function genOptions(task, s) {
+  return {
+    prompt: task.prompt,
+    genType: task.genType || 'video',
+    model: task.model || s.seedanceModel || '',
+    ratio: task.ratio || s.seedanceRatio || '',
+    duration: task.duration || s.seedanceDuration || ''
+  };
+}
 
 export const CHAT_RATIOS = {
   chatgpt: [['1:1', 'Vuông (1:1)'], ['9:16', 'Story (9:16)'], ['2:3', 'Dọc (2:3)'], ['3:2', 'Ngang (3:2)'], ['16:9', 'Rộng (16:9)']],

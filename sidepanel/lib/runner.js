@@ -3,7 +3,7 @@ import { store, uid } from './store.js';
 import * as flow from './flow.js';
 import { PROVIDERS } from './providers.js';
 import { buildFilename, extFor } from './prompts.js';
-import { applyFlowDefaults, chatOptions } from './defaults.js';
+import { applyFlowDefaults, chatOptions, genOptions } from './defaults.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const FLOW_FIELDS = ['prompt', 'genType', 'videoMode', 'model', 'ratio', 'quantity', 'duration', 'resolution'];
@@ -149,8 +149,10 @@ export class Runner {
       task.refIds = [...(task.refIds || []), ...(await this.chainRefs(task))];
       task.chainDone = true;
     }
+    const kind = PROVIDERS[provider].kind;
     const payload = isChat
       ? { chatMode: task.chatMode || 'image', ...chatOptions(provider, task, store.settings) }
+      : kind === 'gen' ? genOptions(task, store.settings)
       : { ...Object.fromEntries(FLOW_FIELDS.map((k) => [k, applyFlowDefaults(task, store.settings)[k]])), keepRefs: store.settings.keepRefs };
     payload.refs = store.getRefs(task.refIds);
     let res;
@@ -221,7 +223,7 @@ export class Runner {
     const what = task.chatMode === 'text' ? `${(r.text || '').length} ký tự` : `${results.length} kết quả`;
     this.log(`#${task.index} xong: ${what}${auto && saved.length ? `, đã tải ${saved.filter((s) => s.downloaded).length}` : ''}`, 'ok');
     this.changed();
-    if (PROVIDERS[task.provider]?.kind === 'chat') await this.chatCleanup(task, a, conv, auto || task.chatMode === 'text');
+    if (['chat', 'gen'].includes(PROVIDERS[task.provider]?.kind)) await this.chatCleanup(task, a, conv, auto || task.chatMode === 'text');
     this.settled(task);
   }
 

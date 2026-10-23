@@ -57,5 +57,6 @@ http.createServer(async (req, res) => {
     return;
   }
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-  res.end(fs.readFileSync(path.join(dir, req.url.startsWith('/chat') ? 'mock-chat.html' : 'mock-flow.html')));
+  const page = req.url.startsWith('/chat') ? 'mock-chat.html' : req.url.startsWith('/dreamina') ? 'mock-dreamina.html' : 'mock-flow.html';
+  res.end(fs.readFileSync(path.join(dir, page)));
 }).listen(port, () => console.log('mock on', port));

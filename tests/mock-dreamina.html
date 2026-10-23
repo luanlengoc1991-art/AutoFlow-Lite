@@ -1,0 +1,59 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Dreamina mock</title>
+<style>
+  body { font: 14px system-ui; background: #111; color: #eee; margin: 0; display: flex; gap: 20px; padding: 20px; }
+  .panel { width: 360px; display: flex; flex-direction: column; gap: 10px; }
+  textarea { height: 90px; }
+  .model-select, .opt, .ratio, .dur { padding: 4px 8px; border: 1px solid #444; border-radius: 6px; cursor: pointer; display: inline-block; }
+  .selected { border-color: #7b61ff; }
+  .menu { display: none; flex-direction: column; gap: 4px; }
+  .menu.open { display: flex; }
+  .record-list { flex: 1; display: flex; flex-wrap: wrap; gap: 8px; min-height: 300px; }
+  .record { width: 160px; height: 280px; background: #222; }
+  video { width: 160px; height: 280px; display: block; }
+</style></head>
+<body>
+<!-- Trang Dreamina giả lập: ô prompt, ô tải khung đầu, chọn model / tỉ lệ / thời lượng, nút Generate, danh sách kết quả. -->
+<div class="panel">
+  <header>Dreamina · <span>120 credits</span></header>
+  <input type="file" accept="image/*" id="first-frame">
+  <div class="model-select" id="model">Seedance 2.0</div>
+  <div class="menu" id="menu">
+    <div class="opt" role="option">Seedance 2.0</div>
+    <div class="opt" role="option">Seedance 2.0 Fast</div>
+    <div class="opt" role="option">Seedance 1.0 Pro</div>
+  </div>
+  <div><span class="ratio selected">16:9</span> <span class="ratio">9:16</span> <span class="ratio">1:1</span></div>
+  <div><span class="dur selected">5s</span> <span class="dur">10s</span></div>
+  <textarea class="prompt-textarea" placeholder="Describe the video you want"></textarea>
+  <button class="submit-button" disabled>Generate</button>
+</div>
+<div class="record-list" id="records"></div>
+<script>
+  const ta = document.querySelector('textarea'), btn = document.querySelector('.submit-button'), file = document.getElementById('first-frame');
+  const state = { model: 'Seedance 2.0', ratio: '16:9', duration: '5s' };
+  window.dreamina = { submits: [] };
+  ta.addEventListener('input', () => { btn.disabled = !ta.value.trim() && !file.files.length; });
+  file.addEventListener('change', () => { btn.disabled = !ta.value.trim() && !file.files.length; });
+  document.getElementById('model').addEventListener('click', () => document.getElementById('menu').classList.toggle('open'));
+  document.querySelectorAll('.opt').forEach((o) => o.addEventListener('click', () => {
+    state.model = o.textContent; document.getElementById('model').textContent = o.textContent; document.getElementById('menu').classList.remove('open');
+  }));
+  const group = (cls, key) => document.querySelectorAll(cls).forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll(cls).forEach((x) => x.classList.toggle('selected', x === b)); state[key] = b.textContent;
+  }));
+  group('.ratio', 'ratio'); group('.dur', 'duration');
+  let n = 0;
+  btn.addEventListener('click', () => {
+    const k = ++n;
+    window.dreamina.submits.push({ prompt: ta.value, files: file.files.length, ...state });
+    ta.value = ''; file.value = ''; btn.disabled = true;
+    const rec = document.createElement('div');
+    rec.className = 'record';
+    rec.textContent = '0%';
+    document.getElementById('records').prepend(rec);
+    setTimeout(() => { rec.textContent = '50%'; }, 1200);
+    setTimeout(() => { rec.innerHTML = `<video src="/asb/dreamina-${k}/video" muted></video>`; }, 2500);
+  });
+</script>
+</body></html>

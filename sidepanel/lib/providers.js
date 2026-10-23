@@ -27,6 +27,21 @@ export const PROVIDERS = {
     home: 'https://grok.com/',
     newChat: 'https://grok.com/',
     scripts: ['content/chat-driver.js', 'content/tracker.js', 'content/chat-main.js']
+  },
+  // Claude chỉ trả lời văn bản (viết prompt, phân tích ảnh), không tạo ảnh.
+  claude: {
+    name: 'Claude', kind: 'chat', textOnly: true,
+    urls: ['https://claude.ai/*'],
+    home: 'https://claude.ai/new',
+    newChat: 'https://claude.ai/new',
+    scripts: ['content/chat-driver.js', 'content/tracker.js', 'content/chat-main.js']
+  },
+  // Seedance chạy trên Dreamina (CapCut) bằng credit của tài khoản đăng nhập.
+  seedance: {
+    name: 'Seedance', kind: 'gen',
+    urls: ['https://dreamina.capcut.com/*'],
+    home: 'https://dreamina.capcut.com/ai-tool/generate?type=video',
+    scripts: ['content/gen-driver.js', 'content/tracker.js', 'content/chat-main.js']
   }
 };
 

@@ -1,4 +1,4 @@
-// Điều khiển trang chat AI (ChatGPT, Gemini, Grok): nhập prompt, đính kèm ảnh, gửi, chờ trả lời xong,
+// Điều khiển trang chat AI (ChatGPT, Gemini, Grok, Claude): nhập prompt, đính kèm ảnh, gửi, chờ trả lời xong,
 // lấy văn bản và ảnh. Mỗi trang có danh sách selector dự phòng; cài đặt có thể ghi đè theo tên provider.
 (function () {
   if (window.AFLChat) return;
@@ -43,6 +43,19 @@
       modelPicker: ['#model-select-trigger', 'button[aria-label*="Model select" i]', 'button[aria-label*="model" i][aria-haspopup]'],
       convMenu: [],
       deleteConfirm: []
+    },
+    claude: {
+      hosts: /(^|\.)claude\.ai$/,
+      composer: ['[data-testid="chat-input"] div.ProseMirror[contenteditable="true"]', 'div.ProseMirror[contenteditable="true"]', 'fieldset div[contenteditable="true"]'],
+      send: ['button[aria-label="Send message"]', 'button[aria-label*="Send" i]', 'fieldset button[type="submit"]'],
+      // Câu trả lời đang được viết có data-is-streaming="true".
+      stop: ['button[aria-label*="Stop" i]', '[data-is-streaming="true"]'],
+      response: ['[data-is-streaming]', 'div.font-claude-response', '[data-testid="assistant-message"]'],
+      responseText: ['.standard-markdown', '.font-claude-response', '.prose'],
+      attach: ['button[aria-label*="Add files" i]', 'button[aria-label*="Attach" i]', '[data-testid="input-menu-plus"]', 'button[aria-label*="Upload" i]'],
+      modelPicker: ['[data-testid="model-selector-dropdown"]', 'button[aria-label*="model" i][aria-haspopup]'],
+      convMenu: ['[data-testid="chat-menu-trigger"]', 'button[aria-label*="conversation options" i]'],
+      deleteConfirm: ['[data-testid="delete-modal-confirm"]', '[role="dialog"] button.bg-danger-200']
     }
   };
 
@@ -243,7 +256,7 @@
 
   // Xoá cuộc trò chuyện vừa tạo. Chỉ xoá khi trang vẫn ở đúng cuộc trò chuyện đó.
   async function deleteChat(conv) {
-    if (!conv || location.pathname !== conv || !/\/(c|app)\/[\w-]+/.test(conv)) return { ok: false, error: 'Trang không còn ở cuộc trò chuyện vừa tạo' };
+    if (!conv || location.pathname !== conv || !/\/(c|app|chat)\/[\w-]+/.test(conv)) return { ok: false, error: 'Trang không còn ở cuộc trò chuyện vừa tạo' };
     const menu = first(cfg.convMenu || []);
     if (!menu) return { ok: false, error: 'Không thấy menu cuộc trò chuyện' };
     menu.click();

@@ -20,9 +20,16 @@ export const PLATFORM_DEFAULTS = {
   grokMode: 'image',
   grokRatio: '9:16',
   grokQuality: 'fast',
-  grokAutoClose: false
+  grokAutoClose: false,
+  claudeModel: '',
+  claudeAutoClose: false,
+  claudeDeleteAfter: false,
+  seedanceModel: 'Seedance 2.0 Fast',
+  seedanceRatio: '9:16',
+  seedanceDuration: '5s',
+  seedanceAutoClose: false
 };
-const PLATFORM_DEFAULTS_V = 1;
+const PLATFORM_DEFAULTS_V = 2;
 
 export const DEFAULT_SETTINGS = {
   concurrency: 1,

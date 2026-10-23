@@ -48,7 +48,7 @@ function waitLoaded(tabId, timeout = 30000) {
 export async function ready(provider = 'flow', opts = {}) {
   const p = PROVIDERS[provider];
   let tab = await findTab(provider);
-  if (!tab && p.kind === 'chat') {
+  if (!tab && p.kind !== 'flow') {
     tab = await chrome.tabs.create({ url: p.home, active: false });
     await waitLoaded(tab.id);
   }
@@ -64,7 +64,7 @@ export async function ready(provider = 'flow', opts = {}) {
     if (!ping?.editor) await sleep(1000);
   }
   if (!ping?.ok) throw Object.assign(new Error(`Không kết nối được ${p.name}, hãy tải lại trang.`), { category: 'setup' });
-  if (p.kind === 'chat' && !ping.editor) throw Object.assign(new Error(`${p.name}: không thấy ô nhập (đã đăng nhập chưa?)`), { category: 'setup' });
+  if (p.kind !== 'flow' && !ping.editor) throw Object.assign(new Error(`${p.name}: không thấy ô nhập (đã đăng nhập chưa?)`), { category: 'setup' });
   return { tab, ping };
 }
 
