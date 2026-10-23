@@ -6,6 +6,7 @@ import {
 } from './lib/workflow-nodes.js';
 import { instantiateTemplate } from './lib/workflow-templates.js';
 import { SEEDANCE_MODELS, SEEDANCE_RATIOS, SEEDANCE_DURATIONS } from './lib/defaults.js';
+import * as flow from './lib/flow.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -177,30 +178,77 @@ function previewHtml(n) {
   const i = Math.min(pages.get(n.id) || 0, media.length - 1);
   const m = media[i];
   const pad = (k) => String(k).padStart(2, '0');
-  return `<div class="viewer has">${m.thumb ? `<img src="${m.thumb}" data-full="${esc(m.url || '')}" data-kind="${m.kind}" alt="">` : `<div class="ph">${m.kind === 'video' ? I.video : I.image}</div>`}
+  const src = (m.kind !== 'video' && fullSrc.get(m.url)?.src) || m.thumb || (m.kind !== 'video' ? m.url : '');
+  return `<div class="viewer has">${src ? `<img src="${esc(src)}" data-full="${esc(m.url || '')}" data-kind="${m.kind}" data-provider="${esc(m.provider || '')}" alt="">` : `<div class="ph">${m.kind === 'video' ? I.video : I.image}</div>`}
     ${m.kind === 'video' ? '<span class="play-badge">▶</span>' : ''}
     <span class="dims" data-info="${esc(m.url || '')}" data-kind="${m.kind}">${esc(mediaInfo.get(m.url) || '')}</span>
     ${media.length > 1 ? `<div class="pager"><button data-act="page-prev" title="Trước">‹</button><span>${pad(i + 1)}/${pad(media.length)}</span><button data-act="page-next" title="Sau">›</button></div>` : ''}</div>`;
 }
 
-// Đọc kích thước ảnh / thời lượng video từ file gốc (best effort, lưu tạm theo URL).
+// Ảnh gốc đúng pixel cho node (ảnh thu nhỏ chỉ dùng tạm). Thử tải thẳng URL; trang cần đăng nhập
+// (vd. ChatGPT) thì đọc qua chính tab của provider. Lưu trong phiên: url -> { src, w, h }.
+const fullSrc = new Map();
+const fullPending = new Map();
+function loadImage(src) {
+  return new Promise((resolve, reject) => { const img = new Image(); img.onload = () => resolve(img); img.onerror = reject; img.src = src; });
+}
+async function fetchFull(url, provider) {
+  try {
+    const img = await loadImage(url);
+    return { src: url, w: img.naturalWidth, h: img.naturalHeight };
+  } catch (_) {
+    const tab = provider ? await flow.findTab(provider) : null;
+    if (!tab) throw new Error('Không mở được ảnh gốc');
+    const r = await flow.send(tab.id, { type: 'afl:fetch', url });
+    if (!r?.ok) throw new Error(r?.error || 'Không đọc được ảnh gốc');
+    const src = URL.createObjectURL(await (await fetch(r.dataUrl)).blob());
+    const img = await loadImage(src);
+    return { src, w: img.naturalWidth, h: img.naturalHeight };
+  }
+}
+const pad2 = (k) => String(k).padStart(2, '0');
+// Khung node theo đúng tỉ lệ ảnh/video (không cắt), góc trên hiện kích thước thật.
+function fitMedia(el, w, h, label) {
+  const box = el.closest('.nb-media');
+  if (box && w && h) box.style.aspectRatio = `${w} / ${h}`;
+  const dims = el.closest('.viewer, .lm')?.querySelector('.dims');
+  if (dims && label) dims.textContent = label;
+}
 function loadMediaInfo(root) {
-  root.querySelectorAll('.dims[data-info]').forEach((el) => {
-    const url = el.dataset.info;
-    if (!url || mediaInfo.has(url)) return;
-    mediaInfo.set(url, '');
-    const show = (text) => { mediaInfo.set(url, text); document.querySelectorAll(`.dims[data-info="${CSS.escape(url)}"]`).forEach((x) => { x.textContent = text; }); };
-    if (el.dataset.kind === 'video') {
-      const v = document.createElement('video');
-      v.preload = 'metadata';
-      v.muted = true;
-      v.onloadedmetadata = () => { const s = Math.round(v.duration || 0); show(`${v.videoWidth} × ${v.videoHeight} · ${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`); v.src = ''; };
-      v.src = url;
-    } else {
-      const img = new Image();
-      img.onload = () => show(`${img.naturalWidth} × ${img.naturalHeight}`);
-      img.src = url;
+  root.querySelectorAll('img[data-full]').forEach((img) => {
+    const url = img.dataset.full;
+    if (!url || img.dataset.kind === 'video') return;
+    const apply = (f) => {
+      if (!img.isConnected) return;
+      if (img.src !== f.src) img.src = f.src;
+      mediaInfo.set(url, `${f.w} × ${f.h}`);
+      fitMedia(img, f.w, f.h, `${f.w} × ${f.h}`);
+    };
+    if (fullSrc.has(url)) { apply(fullSrc.get(url)); return; }
+    if (!fullPending.has(url)) {
+      fullPending.set(url, fetchFull(url, img.dataset.provider).then((f) => { fullSrc.set(url, f); return f; }).finally(() => fullPending.delete(url)));
     }
+    // Không tải được bản gốc: giữ ảnh thu nhỏ nhưng vẫn đúng tỉ lệ.
+    fullPending.get(url).then(apply, () => { if (img.naturalWidth) fitMedia(img, img.naturalWidth, img.naturalHeight, ''); });
+  });
+  root.querySelectorAll('.dims[data-info][data-kind="video"]').forEach((el) => {
+    const url = el.dataset.info;
+    if (!url) return;
+    const known = mediaInfo.get(url);
+    if (known) { el.textContent = known.text; fitMedia(el, known.w, known.h); return; }
+    if (mediaInfo.has(url)) return;
+    mediaInfo.set(url, '');
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    v.muted = true;
+    v.onloadedmetadata = () => {
+      const s = Math.round(v.duration || 0);
+      const info = { text: `${v.videoWidth} × ${v.videoHeight} · ${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`, w: v.videoWidth, h: v.videoHeight, toString() { return this.text; } };
+      mediaInfo.set(url, info);
+      document.querySelectorAll(`.dims[data-info="${CSS.escape(url)}"]`).forEach((x) => { x.textContent = info.text; fitMedia(x, info.w, info.h); });
+      v.src = '';
+    };
+    v.src = url;
   });
 }
 

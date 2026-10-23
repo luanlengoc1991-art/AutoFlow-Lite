@@ -430,6 +430,8 @@ try {
     pager: document.querySelector('.node[data-node=v1] .pager span')?.textContent || '', multi: document.querySelectorAll('#edges path.wire.multi').length,
     grid: document.querySelectorAll('.node[data-node=shots] .lm img').length})`);
   check('trình soạn: List sửa được từng mục, lật trang kết quả, dây nét đứt', adEdInfo.rows === 2 && adEdInfo.first === 'Edited scene A' && adEdInfo.pager === '01/03' && adEdInfo.multi >= 2 && adEdInfo.grid === 3, adEdInfo);
+  const fullImg = await adEd.ev(`(()=>{const img=document.querySelector('.node[data-node=g1] .viewer img');const box=img?.closest('.nb-media');return {src:img?.src.slice(0,40),w:img?.naturalWidth,ratio:box?.style.aspectRatio,dims:document.querySelector('.node[data-node=g1] .dims')?.textContent}})()`);
+  check('node ảnh hiện ảnh gốc đúng pixel, khung theo đúng tỉ lệ ảnh', fullImg.src?.startsWith('http://127.0.0.1') && fullImg.w === 400 && fullImg.ratio === '400 / 300' && fullImg.dims === '400 × 300', fullImg);
   const snap = async (page, name) => { const r = await page.send('Page.captureScreenshot', { format: 'png' }); if (r?.result?.data) fs.writeFileSync(path.join(workDir, name), Buffer.from(r.result.data, 'base64')); };
   await adEd.ev(`document.querySelector('#toolbar [data-act=arrange]').click()`);
   await sleep(800);

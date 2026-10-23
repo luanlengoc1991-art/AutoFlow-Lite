@@ -205,11 +205,11 @@
     const w = img ? img.naturalWidth : vid?.videoWidth, h = img ? img.naturalHeight : vid?.videoHeight;
     if (!el || !w) return '';
     try {
-      const scale = 240 / Math.max(w, h);
+      const scale = Math.min(1, 640 / Math.max(w, h));
       const c = document.createElement('canvas');
       c.width = Math.round(w * scale); c.height = Math.round(h * scale);
       c.getContext('2d').drawImage(el, 0, 0, c.width, c.height);
-      return c.toDataURL('image/jpeg', 0.7);
+      return c.toDataURL('image/jpeg', 0.88);
     } catch (_) { return ''; } // media khác origin làm "bẩn" canvas
   }
   function finalizeJob(token, results) {

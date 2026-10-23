@@ -312,3 +312,9 @@ details.adv summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 .qs-cards .ic { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; background: #262626; color: var(--accent); margin-bottom: 6px; }
 .qs-cards b { font-size: 12px; }
 .qs-cards small { color: var(--muted); font-size: 10.5px; }
+
+/* Ảnh gốc trong node: giữ đúng tỉ lệ, không cắt (khung node tự theo tỉ lệ ảnh). */
+.nb-media .viewer.has img { object-fit: contain; }
+.lm img { object-fit: contain; }
+/* Nhãn kích thước nằm cạnh nút bật/tắt ở góc phải, không bị che. */
+.nb-media .viewer .dims { right: 46px; top: 10px; }

@@ -219,16 +219,19 @@
     return String(inner.innerText || inner.textContent || '').replace(/[​-‍﻿]/g, '')
       .split('\n').map((l) => l.replace(/[ \t ]+/g, ' ').trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
   }
+  // Bỏ trùng: trang có thể vẽ cùng một ảnh 2 lần (bản nền mờ phía sau + bản chính).
   function responseVideos(el) {
-    return [...el.querySelectorAll('video')].map((v) => v.currentSrc || v.src || v.querySelector('source')?.src || '').filter((u) => u && !u.startsWith('blob:'));
+    return [...new Set([...el.querySelectorAll('video')].map((v) => v.currentSrc || v.src || v.querySelector('source')?.src || '').filter((u) => u && !u.startsWith('blob:')))];
   }
   function responseImages(el) {
-    return [...el.querySelectorAll('img')].filter((img) => {
+    return [...new Set([...el.querySelectorAll('img')].filter((img) => {
       const src = img.currentSrc || img.src || '';
       if (!src || src.startsWith('data:image/svg')) return false;
       const big = Math.max(img.naturalWidth, img.naturalHeight) >= 256 || img.getBoundingClientRect().width >= 150;
-      return big && img.complete && visible(img);
-    }).map((img) => img.currentSrc || img.src);
+      if (!big || !img.complete || !visible(img)) return false;
+      const st = getComputedStyle(img);
+      return !/blur/.test(st.filter) && +st.opacity > 0.3;
+    }).map((img) => img.currentSrc || img.src))];
   }
   // Ảnh lớn trong khung hội thoại (bỏ thanh bên, ô nhập, avatar). Dùng để nhận ảnh mới xuất hiện
   // sau khi gửi khi trang đặt ảnh ngoài phần tử câu trả lời.
@@ -379,12 +382,12 @@
     const img = [...document.querySelectorAll('img')].find((i) => (i.currentSrc || i.src) === url);
     if (!img || !img.naturalWidth) return '';
     try {
-      const scale = 200 / Math.max(img.naturalWidth, img.naturalHeight);
+      const scale = Math.min(1, 640 / Math.max(img.naturalWidth, img.naturalHeight));
       const c = document.createElement('canvas');
       c.width = Math.round(img.naturalWidth * scale);
       c.height = Math.round(img.naturalHeight * scale);
       c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-      return c.toDataURL('image/jpeg', 0.7);
+      return c.toDataURL('image/jpeg', 0.88);
     } catch (_) { return ''; } // ảnh khác origin làm "bẩn" canvas
   }
 
