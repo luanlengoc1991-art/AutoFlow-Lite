@@ -1156,6 +1156,7 @@ function renderWorkflows() {
   const cats = [...new Set(TEMPLATES.map((t) => t.category))];
   if ($('wf-cat').options.length !== cats.length + 1) $('wf-cat').innerHTML = `<option value="">Tất cả</option>${cats.map((c) => `<option>${esc(c)}</option>`).join('')}`;
   $('wf-cat').hidden = wfSub !== 'templates';
+  $('wf-run-all').hidden = wfSub !== 'workflows';
   let empty = '';
   if (wfSub === 'templates') {
     const list = TEMPLATES.filter((t) => (!cat || t.category === cat) && (!q || `${t.name} ${t.desc}`.toLowerCase().includes(q)));
@@ -1216,6 +1217,7 @@ async function openEditor(id) {
 let wfDone = Promise.resolve();
 // Lượt chạy chờ tới lượt (bấm chạy node khi đang có lượt khác): chạy lần lượt, kết quả cũ vẫn hiển thị.
 const wfQueue = [];
+let wfBusy = false;
 function broadcastQueue() {
   chrome.runtime.sendMessage({ type: 'afl:workflowQueue', queue: wfQueue }).catch(() => {});
 }
@@ -1233,13 +1235,15 @@ async function runWorkflow(id, only) {
   if (!raw) throw new Error('Không tìm thấy workflow');
   const w = normalizeWorkflow(raw);
   if (w.enabled === false) throw new Error('Workflow đang tắt');
-  if (wfRunner.state?.running) {
+  // wfBusy bật ngay khi bắt đầu (trước khi bộ chạy kịp đặt state.running) để lệnh chạy liền sau vào hàng đợi.
+  if (wfBusy || wfRunner.state?.running) {
     wfQueue.push({ id, only: only?.length ? only : null });
     broadcastQueue();
     log(`Workflow "${w.name}": đã vào hàng đợi (${wfQueue.length}), sẽ tự chạy khi tới lượt`);
     return { queued: wfQueue.length };
   }
   showTab('workflow');
+  wfBusy = true;
   wfDone = wfRunner.run(w, { only }).then(async () => {
     // Lưu kết quả để trình soạn hiển thị lại khi mở.
     const { aflWorkflows = [] } = await chrome.storage.local.get('aflWorkflows');
@@ -1258,14 +1262,14 @@ async function runWorkflow(id, only) {
       await saveWorkflows();
     }
   }).catch((e) => { log(`Workflow lỗi: ${e.message}`, 'error'); toast(e.message); })
-    .finally(() => { if (!wfRunner.state?.running) runNextQueued(); });
+    .finally(() => { wfBusy = false; if (!wfRunner.state?.running) runNextQueued(); });
   return { queued: 0 };
 }
 
 async function useTemplateWorkflow(wf) {
   const name = await askText('Tên workflow', wf.name, 'Tạo');
   if (!name) return;
-  Object.assign(wf, { id: `wf${Date.now().toString(36)}`, name, isTemplate: false, results: {}, runs: null, updatedAt: Date.now() });
+  Object.assign(wf, { id: `wf${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, isTemplate: false, results: {}, runs: null, updatedAt: Date.now() });
   store.workflows.unshift(wf);
   await saveWorkflows();
   wfSub = 'workflows';
@@ -1276,6 +1280,13 @@ async function useTemplateWorkflow(wf) {
 document.querySelectorAll('#wf-subtabs [data-sub]').forEach((b) => b.addEventListener('click', () => { wfSub = b.dataset.sub; renderWorkflows(); }));
 $('wf-search').addEventListener('input', renderWorkflows);
 $('wf-cat').addEventListener('change', renderWorkflows);
+// Chạy tất cả: đưa mọi workflow đang bật vào hàng đợi, chạy lần lượt.
+$('wf-run-all').addEventListener('click', async () => {
+  const list = store.workflows.filter((w) => w.enabled !== false && (w.nodes || []).length);
+  if (!list.length) { toast('Không có workflow nào đang bật'); return; }
+  for (const w of list) await runWorkflow(w.id).catch((e) => log(`Workflow "${w.name}": ${e.message}`, 'error'));
+  toast(`Đã đưa ${list.length} workflow vào hàng chạy`);
+});
 $('wf-new').addEventListener('click', async () => {
   const d = new Date();
   const name = await askText('Tên workflow mới', `Workflow mới - ${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`, 'Tạo');
@@ -1335,9 +1346,9 @@ $('wf-list').addEventListener('click', async (e) => {
       const k = ev.target.closest('[data-m]')?.dataset.m;
       if (!k) return;
       closePop();
-      if (k === 'dup') { store.workflows.unshift({ ...structuredClone(w), id: `wf${Date.now().toString(36)}`, name: `${w.name} (bản sao)`, results: {}, runs: null, updatedAt: Date.now() }); }
+      if (k === 'dup') { store.workflows.unshift({ ...structuredClone(w), id: `wf${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: `${w.name} (bản sao)`, results: {}, runs: null, updatedAt: Date.now() }); }
       if (k === 'rename') { const name = await askText('Đổi tên workflow', w.name, 'Lưu'); if (name) w.name = name; }
-      if (k === 'tpl') { store.workflows.push({ ...structuredClone(w), id: `wf${Date.now().toString(36)}`, isTemplate: true, results: {}, runs: null }); toast('Đã lưu vào "Mẫu của tôi"'); }
+      if (k === 'tpl') { store.workflows.push({ ...structuredClone(w), id: `wf${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, isTemplate: true, results: {}, runs: null }); toast('Đã lưu vào "Mẫu của tôi"'); }
       if (k === 'export') {
         const url = `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify({ format: 'autoflow-workflow', version: 1, name: w.name, nodes: w.nodes, edges: w.edges }, null, 2))}`;
         chrome.runtime.sendMessage({ type: 'afl:download', url, filename: `${store.settings.folder || 'AutoFlow'}/${w.name.replace(/[\\/:*?"<>|]+/g, '_')}.workflow.json` });

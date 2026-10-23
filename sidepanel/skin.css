@@ -175,3 +175,20 @@ dialog { background: #2e2e2e; border-color: rgba(255,255,255,.12); border-radius
 /* Ô chọn gọn như bản gốc (không kéo dài hết hàng). */
 #gen-model { flex: 0 1 auto; max-width: 220px; min-width: 0; }
 #gen-ratio { max-width: 150px; }
+.wf-runall { flex: none; width: auto; padding: 5px 10px; font-size: 12px; gap: 5px; }
+.wf-runall svg { width: 13px; height: 13px; }
+
+/* Ô prompt khi hàng đợi đang chạy: viền dải màu xoay như TobyFlow. */
+@property --af-run-angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+@keyframes af-run-spin { to { --af-run-angle: 360deg; } }
+body:has(#btn-generate.running) .editor-card {
+  border: 2px solid transparent !important;
+  background: linear-gradient(#2e2e2e, #2e2e2e) padding-box,
+    conic-gradient(from var(--af-run-angle), #292929 0deg, #292929 215deg, #FF5FA8 250deg, #C26DC4 278deg, #9178D9 300deg, #6682ED 320deg, #3E8BFF 338deg, #292929 360deg) border-box !important;
+  box-shadow: 0 0 14px 1px hsla(220, 90%, 65%, .30);
+  animation: af-run-spin 6s linear infinite;
+}
+/* Nhấn tab nền tảng / loại ảnh-video: vòng sáng vàng loé ra. */
+.prov, .type-seg button { position: relative; }
+.prov::after, .type-seg button::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; box-shadow: 0 0 0 6px rgba(255, 255, 0, .4); opacity: 0; transition: box-shadow .5s ease, opacity .55s ease; }
+.prov:active::after, .type-seg button:active::after { box-shadow: 0 0 0 0 rgba(255, 255, 0, .4); opacity: 1; transition: 0s; }

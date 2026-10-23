@@ -50,6 +50,13 @@
     bot.setAttribute('data-message-role', 'assistant');
     bot.innerHTML = '<h6 style="display:none">ChatGPT said:</h6><div data-assistant-markdown data-assistant-markdown-root><section aria-label="DIL content"><p data-d-component="text"></p></section></div>';
     thread.appendChild(bot);
+    // "strangeui": giao diện lạ — tin nhắn không có thuộc tính / class nào mà AutoFlow biết.
+    if (/strangeui/i.test(text)) {
+      user.removeAttribute('data-message-role');
+      user.innerHTML = '<div><p></p></div>'; user.querySelector('p').textContent = text;
+      bot.removeAttribute('data-message-role');
+      bot.innerHTML = '<div><div><p></p></div></div>';
+    }
     const md = bot.querySelector('p');
     const stop = document.createElement('button');
     stop.setAttribute('aria-label', 'Stop generating');

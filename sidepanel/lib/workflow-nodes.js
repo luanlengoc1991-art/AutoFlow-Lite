@@ -194,7 +194,7 @@ export function createNode(type, x, y, data = {}) {
 export function newWorkflow(name) {
   const d = new Date();
   const label = name || `Workflow mới - ${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
-  return { id: `wf${Date.now().toString(36)}`, name: label, enabled: true, maxSpeed: false, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, results: {}, updatedAt: Date.now() };
+  return { id: `wf${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: label, enabled: true, maxSpeed: false, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, results: {}, updatedAt: Date.now() };
 }
 
 // Workflow cũ (bản Drawflow) không chuyển đổi được: trả về workflow trống cùng tên.

@@ -783,6 +783,28 @@ try {
   const groupSent = (await tgSent()).slice(tgBeforeGroup);
   check('Telegram "Gộp": 2 ảnh gửi thành 1 album', groupRes?.TG?.s === 'done' && groupSent.length === 1 && groupSent[0].method === 'sendMediaGroup', { groupRes, groupSent: groupSent.map((m) => m.method) });
 
+  // ChatGPT đổi giao diện (khung trả lời không có thuộc tính quen): Assistant vẫn đọc được câu trả lời.
+  const strangeRes = await runBuilt('Strange UI', `(C,E)=>{const a=C('assistant',{name:'AS',provider:'chatgpt',text:'strangeui tell me a fact',exportAs:'text'});return {nodes:[a],edges:[]}}`, 150000);
+  const strangeOut = await P(`(async()=>{const {aflWorkflows=[]}=await chrome.storage.local.get('aflWorkflows');const w=aflWorkflows.find(x=>x.name==='Strange UI');const n=w.nodes[0];return (w.results?.[n.id]?.preview||[]).map(p=>p.text).join('|')})()`);
+  check('ChatGPT giao diện lạ: đọc câu trả lời bằng cách so chữ mới trong hội thoại', strangeRes?.AS?.s === 'done' && /Here is my answer about: strangeui tell me a fact/.test(strangeOut) && !/^strangeui tell me a fact$/m.test(strangeOut), { strangeRes, strangeOut: strangeOut.slice(0, 300) });
+
+  // "Chạy tất cả" (tab Workflows): chỉ các workflow đang bật, chạy lần lượt.
+  await P(`(async()=>{const {createNode,newWorkflow,nid}=await import('./lib/workflow-nodes.js');const {store}=await import('./lib/store.js');
+    for(const w of store.workflows) w.enabled=false;
+    const mk=(name,text,enabled)=>{const w=newWorkflow(name);w.enabled=enabled;const t=createNode('text',0,0,{text});const g=createNode('generate',320,0,{});w.nodes=[t,g];w.edges=[{id:nid(),from:{node:t.id,port:'text'},to:{node:g.id,port:'text'}}];return w;};
+    store.workflows.push(mk('RA1','run all one',true),mk('RA2','run all two',true),mk('RA3','run all off',false));
+    await chrome.storage.local.set({aflWorkflows:store.workflows});
+    document.querySelector('[data-tab=workflow]').click();document.querySelector('#wf-subtabs [data-sub=workflows]').click();return 1})()`);
+  await sleep(800);
+  subsBefore = (await flowPage.ev('window.mock.submits')).length;
+  const raVisible = await P(`!document.getElementById('wf-run-all').hidden`);
+  await P(`document.getElementById('wf-run-all').click()`);
+  let raSubs = [];
+  for (let i = 0; i < 60 && raSubs.length < 2; i++) { await sleep(1500); raSubs = (await flowPage.ev('window.mock.submits')).slice(subsBefore).map((x) => x.text); }
+  await sleep(3000);
+  raSubs = (await flowPage.ev('window.mock.submits')).slice(subsBefore).map((x) => x.text);
+  check('Workflows "Chạy tất cả": chạy lần lượt 2 workflow đang bật, bỏ workflow tắt', raVisible && raSubs.length === 2 && raSubs.includes('run all one') && raSubs.includes('run all two'), { raVisible, raSubs });
+
   // Node ChatGPT: tỷ lệ + "Luôn thêm Generate an image:" riêng của node.
   const gptRes = await runBuilt('GPT opts', `(C,E)=>{const g=C('chatgpt',{name:'GPT',prompt:'a green pear on a table',ratio:'1:1',prefix:'always'});return {nodes:[g],edges:[]}}`, 120000);
   // Chat mới tải lại trang chat giả lập (danh sách tin đã gửi bị đặt lại): đọc tin cuối.

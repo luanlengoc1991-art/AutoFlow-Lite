@@ -307,7 +307,8 @@
     const token = `chat-${Date.now()}-${++jobSeq}`;
     jobs.set(token, {
       token, before: new Set(responses()), prompt: compact(task.prompt), wantImage: task.chatMode !== 'text', wantVideo: !!task.wantVideo,
-      startedAt: Date.now(), sig: '', lastChange: Date.now(), beforeImgs: new Set(task.chatMode !== 'text' ? pageImages() : [])
+      startedAt: Date.now(), sig: '', lastChange: Date.now(), beforeImgs: new Set(task.chatMode !== 'text' ? pageImages() : []),
+      beforeLines: new Set(convLines()), promptLines: new Set(String(task.prompt).split('\n').map((l) => compact(l)).filter(Boolean))
     });
     const btn = await waitFor(() => { const b = first(cfg.send); return b && !isDisabled(b) ? b : null; }, 15000, 200);
     if (btn) btn.click();
@@ -322,6 +323,31 @@
       }
     }
     return { ok: true, token, warnings };
+  }
+
+  // Dự phòng khi không nhận ra khung trả lời (trang đổi giao diện): các dòng chữ mới xuất hiện trong khung
+  // hội thoại kể từ lúc gửi, bỏ dòng của prompt và dòng đã có trước (thanh bên, chân trang…).
+  function convRoot() {
+    const c = composer();
+    return document.querySelector('main') || c?.closest('main, [role="main"]') || document.body;
+  }
+  function convLines() {
+    const root = convRoot();
+    const form = composer()?.closest('form');
+    let text = root.innerText || '';
+    if (form && root.contains(form)) text = text.replace(form.innerText || '', '');
+    return text.split('\n').map((l) => l.trim()).filter(Boolean);
+  }
+  function fallbackText(job) {
+    const seen = new Set();
+    const lines = convLines().filter((l) => {
+      const k = compact(l);
+      if (!k || job.beforeLines.has(l) || job.promptLines.has(k) || seen.has(l)) return false;
+      if (job.prompt.includes(k) && k.length > 12) return false;
+      seen.add(l);
+      return true;
+    });
+    return lines.join('\n').trim();
   }
 
   function latestResponse(job) {
@@ -346,6 +372,20 @@
     const results = [...videos.map((url) => ({ url, kind: 'video' })), ...images.map((url) => ({ url, kind: 'image' }))];
     const base = { progress: null, results, text };
 
+    if (!el && !results.length && !job.wantImage) {
+      // Câu trả lời văn bản nhưng không nhận ra khung trả lời: đọc phần chữ mới trong khung hội thoại.
+      const fb = fallbackText(job);
+      if (fb) {
+        if (`fb|${fb.length}` !== job.fbSig) { job.fbSig = `fb|${fb.length}`; job.lastChange = now; }
+        const still = now - job.lastChange;
+        if (!streaming && still >= 4000) {
+          const cat = classify(fb);
+          if (cat === 'quota' || cat === 'captcha') return { status: 'failed', ...base, text: fb, error: fb.slice(0, 300), category: cat };
+          return { status: 'done', ...base, text: fb, fallback: true };
+        }
+        return { status: 'running', ...base, text: fb };
+      }
+    }
     if (!el && !results.length) {
       // Chưa nhận ra khung trả lời: trang vẫn đang trả lời (nút Dừng) hoặc đang vẽ ảnh thì chờ tiếp,
       // tránh báo lỗi rồi thử lại bằng cuộc trò chuyện mới trong khi câu trả lời cũ vẫn đang chạy.

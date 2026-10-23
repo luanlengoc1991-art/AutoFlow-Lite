@@ -409,16 +409,13 @@ details.adv summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 @keyframes af-toast-in { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
 .side:not([hidden]) { animation: af-slide-in .18s ease-out; }
 @keyframes af-slide-in { from { opacity: .4; transform: translateX(24px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) {
-  .node .card, #edges path, .port, .menu, .lightbox, .lightbox img, .toast, .side, .node.running .nb-media::after { animation: none !important; }
-}
 
 /* ---------- Giao diện kiểu TobyFlow ---------- */
 :root { --bg: #111111; --card: #191919; --line: #3a3a3a; --line-2: #3f3f3f; }
 .top { background: #161616; border-bottom: 1px solid rgba(255,255,255,.06); backdrop-filter: none; }
 .node .card { background: #191919; border: 1px solid #3a3a3a; border-radius: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.15); transition: border-color .15s, box-shadow .15s; }
-.node:hover .card { border-color: rgba(255,255,255,.14); box-shadow: 0 4px 12px rgba(0,0,0,.2); }
-.node.selected .card { border-color: #5a5a5a; box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+.node:not(.done):not(.error):not(.running):hover .card { border-color: rgba(255,255,255,.14); box-shadow: 0 4px 12px rgba(0,0,0,.2); }
+.node.selected:not(.done):not(.error):not(.running) .card { border-color: #5a5a5a; box-shadow: 0 8px 24px rgba(0,0,0,.45); }
 .port { width: 32px; height: 32px; background: #2e2e33; border: 1.5px solid rgba(255,255,255,.18); color: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.4); transition: transform .15s, box-shadow .15s, border-color .15s; }
 .port[data-type="text"] { border-color: #50476a; }
 .port[data-type="image"] { border-color: #303961; }
@@ -435,24 +432,37 @@ details.adv summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 .side { background: #161616; border-left: 1px solid rgba(255,255,255,.06); }
 .menu { background: #1c1c1f; border-color: #3f3f3f; }
 
-/* Khung soạn prompt nổi dưới node đang chọn (cỡ cố định trên màn hình). */
-.composer { position: absolute; transform-origin: top center; z-index: 23; background: #222222; border: 1px solid rgba(255,255,255,.08); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 12px 32px rgba(0,0,0,.5); user-select: text; }
-.composer textarea { width: 100%; min-height: 90px; resize: vertical; background: transparent; border: 0; color: #e8e8ea; font: 14px/1.5 Inter, system-ui, sans-serif; outline: none; }
-.composer textarea::placeholder { color: #6b6b6b; }
-.composer textarea:disabled { opacity: .45; }
-.cp-refs { display: flex; gap: 6px; flex-wrap: wrap; }
-.cp-add { width: 44px; height: 44px; display: grid; place-items: center; background: #2e2e2e; border: 1px solid rgba(255,255,255,.1); border-radius: 8px; color: #bdbdbd; }
-.cp-add svg { width: 18px; height: 18px; }
-.cp-add:hover { color: #fff; border-color: rgba(255,255,255,.25); }
-.cp-ref { position: relative; }
-.cp-ref img { width: 44px; height: 44px; object-fit: cover; border-radius: 8px; display: block; }
-.cp-ref button { position: absolute; top: -5px; right: -5px; width: 16px; height: 16px; border-radius: 50%; border: 0; background: #000; color: #fff; font-size: 9px; padding: 0; }
-.cp-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.cp-own { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: #bdbdbd; }
-.cp-count { font-size: 11px; color: #8b8b92; }
-.composer select { background: #1a1a1a; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; color: #e8e8ea; padding: 6px 10px; font-size: 13px; max-width: 160px; }
-.cp-ratio { background: transparent; border: 1px solid rgba(255,255,255,.12); border-radius: 999px; color: #bdbdbd; padding: 4px 10px; font-size: 12px; font-weight: 600; }
-.cp-ratio:hover { color: #fff; }
-.cp-ratio.on { border-color: #fff; color: #fff; }
-.cp-send { width: 30px; height: 30px; border-radius: 50%; border: 0; background: #f2f2f2; color: #141414; font-size: 16px; font-weight: 800; display: grid; place-items: center; }
-.cp-send:hover { background: #fff; }
+/* ---------- Hiệu ứng trạng thái giống TobyFlow ---------- */
+/* Đang chạy: viền 4px dải hồng → tím → xanh xoay 6s, ánh sáng xanh. */
+.node.running .card {
+  border: 4px solid transparent !important; border-radius: 18px;
+  background: linear-gradient(var(--card), var(--card)) padding-box,
+    conic-gradient(from var(--ang), #111111 0deg, #111111 215deg, #FF5FA8 250deg, #C26DC4 278deg, #9178D9 300deg, #6682ED 320deg, #3E8BFF 338deg, #111111 360deg) border-box !important;
+  box-shadow: 0 0 16px 1px hsla(220, 90%, 65%, .34), 0 4px 12px rgba(0, 0, 0, .25);
+  animation: spin-border 6s linear infinite !important;
+}
+/* Ảnh xem trước đang tạo: vệt sáng cam–trắng quét ngang. */
+.node.running .nb-media::after {
+  background: linear-gradient(110deg, rgba(245,158,51,.35) 0%, rgba(255,255,255,.45) 40%, rgba(245,158,51,.35) 60%);
+  background-size: 200% 100%; background-repeat: no-repeat; mix-blend-mode: overlay; opacity: .55;
+}
+/* Xong: viền xanh lá + vòng sáng. */
+.node.done .card {
+  border-color: hsl(142, 71%, 45%); outline: 1px solid hsl(142, 71%, 45%); outline-offset: 0;
+  box-shadow: 0 0 0 1px hsl(142, 71%, 45%), 0 0 0 3px hsla(142, 71%, 45%, .18), 0 0 16px 4px hsla(142, 71%, 45%, .28), 0 8px 24px rgba(0, 0, 0, .4);
+}
+/* Lỗi: viền đỏ + vòng sáng nhấp nháy. */
+.node.error .card {
+  border-color: hsl(0, 84%, 60%); outline: 1px solid hsl(0, 84%, 60%); outline-offset: 0;
+  box-shadow: 0 0 0 1px hsl(0, 84%, 60%), 0 0 0 3px hsla(0, 84%, 60%, .2), 0 0 18px 5px hsla(0, 84%, 60%, .35), 0 8px 24px rgba(0, 0, 0, .4);
+  animation: af-node-pulse-strong 2.2s ease-in-out infinite;
+}
+/* Dây: mờ khi nghỉ; đang truyền / nối node đang chọn thì dày, sáng và có vạch trắng chạy. */
+#edges path.wire { stroke-width: 4; opacity: 1; transition: stroke-width .15s, filter .15s; }
+#edges path.wire.active { stroke-width: 9; filter: brightness(1.35); stroke-dasharray: none; animation: none; }
+#edges path.wire-overlay { fill: none; stroke: #ffffff; stroke-width: 3; stroke-linecap: round; stroke-dasharray: 6 8; opacity: .85; pointer-events: none; animation: af-conn-flow .8s linear infinite; }
+@keyframes af-conn-flow { to { stroke-dashoffset: -14; } }
+#edges path.wire.selected { stroke-width: 10; }
+
+/* Chip phụ (vd. "Chat mới") chỉ hiện khi node đang được chọn. */
+.node:not(.selected) .chip.sel-only { display: none; }
