@@ -226,9 +226,11 @@
   function responseImages(el) {
     return [...new Set([...el.querySelectorAll('img')].filter((img) => {
       const src = img.currentSrc || img.src || '';
-      if (!src || src.startsWith('data:image/svg')) return false;
-      const big = Math.max(img.naturalWidth, img.naturalHeight) >= 256 || img.getBoundingClientRect().width >= 150;
-      if (!big || !img.complete || !visible(img)) return false;
+      if (!src || src.startsWith('data:')) return false;
+      // Tab ChatGPT ở nền thường chưa tải ảnh (lazy): nhận theo kích thước hiển thị, không đợi tải xong.
+      const r = img.getBoundingClientRect();
+      const big = Math.max(img.naturalWidth, img.naturalHeight) >= 256 || r.width >= 150 || r.height >= 150;
+      if (!big || getComputedStyle(img).display === 'none' || getComputedStyle(img).visibility === 'hidden') return false;
       const st = getComputedStyle(img);
       return !/blur/.test(st.filter) && +st.opacity > 0.3;
     }).map((img) => img.currentSrc || img.src))];
@@ -240,8 +242,18 @@
       const img = [...document.querySelectorAll('img')].find((i) => (i.currentSrc || i.src) === src);
       // Thanh bên ChatGPT (GPT đã ghim, dự án) không nằm trong nav/aside.
       return img && !img.closest('nav, aside, header, form, [role="dialog"], [data-message-role="user"], [data-message-author-role="user"], [data-turn="user"], [data-app-action-sidebar-section], [data-sidebar-project-container-id], [data-sidebar-cycle-item]')
-        && Math.max(img.naturalWidth, img.naturalHeight) >= 256;
+        && (Math.max(img.naturalWidth, img.naturalHeight) >= 256 || img.getBoundingClientRect().width >= 150);
     });
+  }
+
+  // Mọi ảnh lớn mới trong hội thoại, kể cả bản xem trước còn mờ (để ước tính %).
+  function previewImages() {
+    return [...document.querySelectorAll('img')].filter((img) => {
+      const src = img.currentSrc || img.src || '';
+      if (!src || src.startsWith('data:') || img.closest('nav, aside, header, form')) return false;
+      const r = img.getBoundingClientRect();
+      return r.width >= 150 || r.height >= 150;
+    }).map((img) => img.currentSrc || img.src);
   }
 
   function classify(text) {
@@ -370,7 +382,17 @@
     if (sig !== job.sig) { job.sig = sig; job.lastChange = now; }
     const stable = now - job.lastChange;
     const results = [...videos.map((url) => ({ url, kind: 'video' })), ...images.map((url) => ({ url, kind: 'image' }))];
-    const base = { progress: null, results, text };
+    // % ước tính khi tạo ảnh (trang chat không công bố %): theo bản xem trước mờ và thời gian đã chạy.
+    let progress = null;
+    if (job.wantImage) {
+      if (results.length) progress = 100;
+      else {
+        if (!job.previewSeen && previewImages().some((src) => !job.beforeImgs.has(src))) job.previewSeen = now;
+        const est = Math.round((now - job.startedAt) / 700);
+        progress = job.previewSeen ? Math.min(97, Math.max(60, 60 + Math.round((now - job.previewSeen) / 800))) : Math.min(55, est);
+      }
+    }
+    const base = { progress, results, text };
 
     if (!el && !results.length && !job.wantImage) {
       // Câu trả lời văn bản nhưng không nhận ra khung trả lời: đọc phần chữ mới trong khung hội thoại.
@@ -394,10 +416,10 @@
       return { status: failed ? 'failed' : 'running', ...base, error: 'Trang chat không trả lời', category: 'error' };
     }
     // Nút "Dừng" có thể còn hiện (hoặc selector khớp nhầm) dù ảnh đã xong: ảnh đứng yên 20s thì nhận.
-    if (streaming && !(job.wantImage && results.length && stable >= 20000)) return { status: 'running', ...base };
+    if (streaming && !(job.wantImage && results.length && stable >= 8000)) return { status: 'running', ...base };
     if (job.wantImage) {
       // Chờ video thì ảnh xem trước chưa phải kết quả cuối (trừ khi đứng yên 60s).
-      if (results.length && stable >= 5000 && (!job.wantVideo || videos.length || stable >= 60000)) return { status: 'done', ...base };
+      if (results.length && stable >= 2500 && (!job.wantVideo || videos.length || stable >= 60000)) return { status: 'done', ...base };
       // Lời từ chối / hết lượt rõ ràng: báo ngay, không chờ ảnh.
       const quick = !results.length && text && stable >= 4000 ? classify(text) : null;
       if (quick) return { status: 'failed', ...base, error: text.slice(0, 300), category: quick };

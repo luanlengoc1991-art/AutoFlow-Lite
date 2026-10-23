@@ -41,7 +41,7 @@ function toast(msg) {
   toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
 }
 
-const runner = new Runner({ log, onChange: () => { renderTasks(); renderRunState(); renderHistory(); renderSavedTasks(); } });
+const runner = new Runner({ log, onChange: () => { renderTasks(); renderRunState(); renderHistory(); renderSavedTasks(); if (wfRunner?.state?.running && wfRunner.refreshProgress()) renderWorkflowRun(); } });
 const wfRunner = new WorkflowRunner({ runner, log, onUpdate: () => { renderTasks(); renderWorkflowRun(); } });
 
 // ---------- Tabs ----------

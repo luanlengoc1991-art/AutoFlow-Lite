@@ -124,7 +124,8 @@ export class Runner {
         break;
       }
       this.broadcast();
-      await sleep(next ? 400 : 1500);
+      // Có lượt đang tạo: hỏi trang dày hơn để nhận kết quả ngay khi xong.
+      await sleep(next ? 400 : this.active.size ? 700 : 1500);
     }
   }
 

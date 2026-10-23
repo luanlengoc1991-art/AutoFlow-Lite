@@ -453,7 +453,7 @@ function applyStatus(el, n) {
     // "Đang tạo video 3 / 7 · 1m 43s" (như "Generating video 3 of 7" của bản gốc).
     const host = el.querySelector('.nb-media:not([data-drop])') || (['assistant', 'prompt', 'list'].includes(n.type) ? el.querySelector('.card') : null);
     const what = n.type === 'seedance' || n.data.genType === 'video' ? 'video' : NODE_DEFS[n.type].provider ? 'ảnh' : '';
-    host?.insertAdjacentHTML('beforeend', `<div class="gen-status" data-start="${st.startedAt || Date.now()}" data-what="${what}" data-done="${st.done || 0}" data-total="${st.total || 0}"></div>`);
+    host?.insertAdjacentHTML('beforeend', `<div class="gen-status" data-start="${st.startedAt || Date.now()}" data-what="${what}" data-done="${st.done || 0}" data-total="${st.total || 0}" data-progress="${st.progress ?? ''}"></div>`);
     host && tickStatus(host.querySelector('.gen-status'));
   }
   if (st.status === 'running' && st.total) {
@@ -482,9 +482,10 @@ function elapsed(ms) {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
 }
 function tickStatus(el) {
-  const { start, what, done, total } = el.dataset;
+  const { start, what, done, total, progress } = el.dataset;
   const step = +total > 1 ? ` ${Math.min(+done + 1, +total)} / ${total}` : '';
-  el.textContent = `${what ? `Đang tạo ${what}` : 'Đang chạy'}${step}… · ${elapsed(Date.now() - +start)}`;
+  const pct = progress !== '' && progress !== undefined && +progress > 0 ? ` ${progress}%` : '';
+  el.textContent = `${what ? `Đang tạo ${what}` : 'Đang chạy'}${step}…${pct} · ${elapsed(Date.now() - +start)}`;
 }
 setInterval(() => document.querySelectorAll('.gen-status').forEach(tickStatus), 1000);
 

@@ -459,10 +459,10 @@ details.adv summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 }
 /* Dây: mờ khi nghỉ; đang truyền / nối node đang chọn thì dày, sáng và có vạch trắng chạy. */
 #edges path.wire { stroke-width: 4; opacity: 1; transition: stroke-width .15s, filter .15s; }
-#edges path.wire.active { stroke-width: 9; filter: brightness(1.35); stroke-dasharray: none; animation: none; }
-#edges path.wire-overlay { fill: none; stroke: #ffffff; stroke-width: 3; stroke-linecap: round; stroke-dasharray: 6 8; opacity: .85; pointer-events: none; animation: af-conn-flow .8s linear infinite; }
+#edges path.wire.active { stroke-width: 4; filter: brightness(1.25) drop-shadow(0 0 3px currentColor); stroke-dasharray: none; animation: none; }
+#edges path.wire-overlay { fill: none; stroke: #ffffff; stroke-width: 1.5; stroke-linecap: round; stroke-dasharray: 4 10; opacity: .7; pointer-events: none; animation: af-conn-flow .8s linear infinite; }
 @keyframes af-conn-flow { to { stroke-dashoffset: -14; } }
-#edges path.wire.selected { stroke-width: 10; }
+#edges path.wire.selected { stroke-width: 5; }
 
 /* Chip phụ (vd. "Chat mới") chỉ hiện khi node đang được chọn. */
 .node:not(.selected) .chip.sel-only { display: none; }

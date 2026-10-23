@@ -108,6 +108,18 @@ export class WorkflowRunner {
     return task;
   }
 
+  // % tiến độ của các node đang tạo (trung bình % các lượt của node). Trả về true nếu có thay đổi.
+  refreshProgress() {
+    let changed = false;
+    for (const st of Object.values(this.state?.nodes || {})) {
+      if (st.status !== 'running' || !st.taskIds?.length) continue;
+      const ts = st.taskIds.map((id) => store.tasks.find((t) => t.id === id)).filter(Boolean);
+      const p = ts.length ? Math.round(ts.reduce((a, t) => a + (FINAL.has(t.status) ? 100 : +t.progress || 0), 0) / ts.length) : 0;
+      if (p !== st.progress) { st.progress = p; changed = true; }
+    }
+    return changed;
+  }
+
   // onProgress(doneCount) được gọi mỗi khi một task kết thúc.
   waitTasks(tasks, onProgress) {
     return new Promise((resolve) => {
@@ -257,7 +269,7 @@ export class WorkflowRunner {
     const tasks = jobs.map((job) => this.genTask(node, d, ctx, job, isVideo, !!opts.single));
     const st = ctx.nodeState;
     if (st) {
-      Object.assign(st, { total: tasks.length, done: 0 });
+      Object.assign(st, { total: tasks.length, done: 0, taskIds: tasks.map((t) => t.id), progress: 0 });
       // Thông tin lượt chạy cho tab "Kết quả" của trình soạn.
       st.info = {
         provider: tasks[0]?.provider || node.type, genType: isVideo ? 'video' : 'image', model: d.model || d.quality || '', ratio: d.ratio || '', duration: isVideo ? d.duration || '' : '',
