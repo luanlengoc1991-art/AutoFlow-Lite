@@ -10,11 +10,14 @@
   const PROVIDERS = {
     chatgpt: {
       hosts: /(^|\.)chatgpt\.com$|(^|\.)chat\.openai\.com$/,
-      composer: ['#prompt-textarea', 'div.ProseMirror[contenteditable="true"]', 'textarea[name="prompt-textarea"]', 'form textarea'],
-      send: ['[data-testid="send-button"]', '#composer-submit-button', 'button[aria-label*="Send" i]'],
-      stop: ['[data-testid="stop-button"]', 'button[aria-label*="Stop" i]'],
-      response: ['[data-message-author-role="assistant"]'],
-      responseText: ['.markdown', '[data-message-author-role="assistant"]'],
+      // Giao diện 2026 ("octane"): textarea#mobile-composer-prompt, câu trả lời li[data-message-role="assistant"].
+      // Selector của giao diện cũ giữ lại làm dự phòng.
+      composer: ['#mobile-composer-prompt', 'textarea[aria-label*="ChatGPT" i]', '#prompt-textarea', 'div.ProseMirror[contenteditable="true"]', 'textarea[name="prompt-textarea"]', 'form textarea'],
+      send: ['button[aria-label="Send message"]', '[data-testid="send-button"]', '#composer-submit-button', 'button[aria-label*="Send" i]'],
+      stop: ['button[aria-label*="Stop" i]', '[data-testid="stop-button"]'],
+      // Cả lượt trả lời (ảnh tạo ra có thể nằm ngoài khối văn bản của câu trả lời).
+      response: ['li[data-message-role="assistant"]', 'article[data-turn="assistant"]', '[data-testid^="conversation-turn-"]:has([data-message-author-role="assistant"])', '[data-message-author-role="assistant"]'],
+      responseText: ['[data-assistant-markdown-root]', '.markdown', '[data-message-author-role="assistant"]'],
       attach: ['button[aria-label*="Attach" i]', 'button[aria-label*="Add photos" i]', 'button[aria-label*="Upload" i]', '[data-testid="composer-plus-btn"]'],
       modelPicker: ['[data-testid="model-switcher-dropdown-button"]', 'button[aria-label*="Model selector" i]', 'button[aria-label*="model" i][aria-haspopup]'],
       convMenu: ['[data-testid="conversation-options-button"]', 'button[aria-label*="Open conversation options" i]'],
@@ -225,6 +228,15 @@
       return big && img.complete && visible(img);
     }).map((img) => img.currentSrc || img.src);
   }
+  // Ảnh lớn trong khung hội thoại (bỏ thanh bên, ô nhập, avatar). Dùng để nhận ảnh mới xuất hiện
+  // sau khi gửi khi trang đặt ảnh ngoài phần tử câu trả lời.
+  function pageImages() {
+    return responseImages(document).filter((src) => {
+      const img = [...document.querySelectorAll('img')].find((i) => (i.currentSrc || i.src) === src);
+      return img && !img.closest('nav, aside, header, form, [role="dialog"], [data-message-role="user"], [data-message-author-role="user"], [data-turn="user"]')
+        && Math.max(img.naturalWidth, img.naturalHeight) >= 256;
+    });
+  }
 
   function classify(text) {
     const t = String(text || '').toLowerCase();
@@ -256,7 +268,7 @@
 
   // Xoá cuộc trò chuyện vừa tạo. Chỉ xoá khi trang vẫn ở đúng cuộc trò chuyện đó.
   async function deleteChat(conv) {
-    if (!conv || location.pathname !== conv || !/\/(c|app|chat)\/[\w-]+/.test(conv)) return { ok: false, error: 'Trang không còn ở cuộc trò chuyện vừa tạo' };
+    if (!conv || location.pathname !== conv || !/\/(c|uc|app|chat)\/[\w-]+/.test(conv)) return { ok: false, error: 'Trang không còn ở cuộc trò chuyện vừa tạo' };
     const menu = first(cfg.convMenu || []);
     if (!menu) return { ok: false, error: 'Không thấy menu cuộc trò chuyện' };
     menu.click();
@@ -272,6 +284,7 @@
 
   const jobs = new Map();
   let jobSeq = 0;
+  const IMAGE_WAIT_MS = 240000;
 
   async function submitTask(task) {
     const c = await waitFor(composer, 15000, 300);
@@ -288,7 +301,7 @@
     const token = `chat-${Date.now()}-${++jobSeq}`;
     jobs.set(token, {
       token, before: new Set(responses()), prompt: compact(task.prompt), wantImage: task.chatMode !== 'text', wantVideo: !!task.wantVideo,
-      startedAt: Date.now(), sig: '', lastChange: Date.now()
+      startedAt: Date.now(), sig: '', lastChange: Date.now(), beforeImgs: new Set(task.chatMode !== 'text' ? pageImages() : [])
     });
     const btn = await waitFor(() => { const b = first(cfg.send); return b && !isDisabled(b) ? b : null; }, 15000, 200);
     if (btn) btn.click();
@@ -318,23 +331,28 @@
     const streaming = !!first(cfg.stop);
     const text = el ? responseText(el) : '';
     const videos = el ? responseVideos(el) : [];
-    const images = el ? (job.wantVideo && videos.length ? [] : responseImages(el)) : [];
+    let images = el ? (job.wantVideo && videos.length ? [] : responseImages(el)) : [];
+    // Dự phòng: ảnh mới xuất hiện trong khung hội thoại kể từ lúc gửi (ảnh nằm ngoài phần tử câu trả lời).
+    if (job.wantImage && !images.length && !(job.wantVideo && videos.length)) images = pageImages().filter((src) => !job.beforeImgs.has(src));
     const sig = `${text.length}|${images.join(',')}|${videos.join(',')}`;
     if (sig !== job.sig) { job.sig = sig; job.lastChange = now; }
     const stable = now - job.lastChange;
     const results = [...videos.map((url) => ({ url, kind: 'video' })), ...images.map((url) => ({ url, kind: 'image' }))];
     const base = { progress: null, results, text };
 
-    if (!el) return { status: now - job.startedAt > 90000 ? 'failed' : 'running', ...base, error: 'Trang chat không trả lời', category: 'error' };
-    if (streaming) return { status: 'running', ...base };
+    if (!el && !results.length) return { status: now - job.startedAt > 90000 ? 'failed' : 'running', ...base, error: 'Trang chat không trả lời', category: 'error' };
+    // Nút "Dừng" có thể còn hiện (hoặc selector khớp nhầm) dù ảnh đã xong: ảnh đứng yên 20s thì nhận.
+    if (streaming && !(job.wantImage && results.length && stable >= 20000)) return { status: 'running', ...base };
     if (job.wantImage) {
       // Chờ video thì ảnh xem trước chưa phải kết quả cuối (trừ khi đứng yên 60s).
       if (results.length && stable >= 5000 && (!job.wantVideo || videos.length || stable >= 60000)) return { status: 'done', ...base };
       // Lời từ chối / hết lượt rõ ràng: báo ngay, không chờ ảnh.
       const quick = !results.length && text && stable >= 4000 ? classify(text) : null;
       if (quick) return { status: 'failed', ...base, error: text.slice(0, 300), category: quick };
-      // Đang "Creating image": chưa có ảnh, văn bản ngắn; chờ tối đa 60s sau khi ngừng thay đổi.
-      if (!results.length && text && stable >= 60000) {
+      // Đang "Creating image": chưa có ảnh, văn bản ngắn. ChatGPT vẽ ảnh mất 1–3 phút và có thể
+      // không hiện nút Dừng, nên chờ tối đa 4 phút sau khi chữ ngừng thay đổi (báo lỗi sớm sẽ khiến
+      // hàng đợi thử lại bằng cuộc trò chuyện mới trong khi ảnh cũ vẫn đang được vẽ).
+      if (!results.length && text && stable >= IMAGE_WAIT_MS) {
         const cat = classify(text);
         return { status: 'failed', ...base, error: text.slice(0, 300), category: cat || 'error' };
       }
@@ -383,10 +401,21 @@
     const describe = (el) => ({ tag: el.tagName.toLowerCase(), id: el.id, testid: el.getAttribute('data-testid'), aria: el.getAttribute('aria-label'), cls: String(el.className || '').slice(0, 80), text: norm(el.textContent).slice(0, 60) });
     return {
       url: location.href, provider, at: new Date().toISOString(),
-      found: { composer: !!composer(), send: !!first(cfg.send), stop: !!first(cfg.stop), responses: responses().length },
+      found: { composer: !!composer(), send: !!first(cfg.send), stop: !!first(cfg.stop), responses: responses().length, pageImages: pageImages().length },
+      matched: Object.fromEntries(['composer', 'send', 'stop'].map((k) => [k, first(cfg[k]) ? describe(first(cfg[k])) : null])),
       buttons: [...document.querySelectorAll('button')].filter(visible).slice(-60).map(describe),
-      editables: [...document.querySelectorAll('textarea, [contenteditable="true"]')].filter(visible).map(describe)
+      editables: [...document.querySelectorAll('textarea, [contenteditable="true"]')].filter(visible).map(describe),
+      // Cấu trúc câu trả lời: chuỗi phần tử cha của ảnh lớn và của câu trả lời cuối (để chỉnh selector).
+      images: [...document.querySelectorAll('img')].filter((i) => visible(i) && Math.max(i.naturalWidth, i.naturalHeight) >= 256).slice(-3).map((img) => ({ src: (img.currentSrc || img.src).slice(0, 120), alt: img.alt, ancestors: ancestors(img) })),
+      lastResponse: (() => { const el = responses().at(-1); return el ? { ...describe(el), text: responseText(el).slice(0, 200), ancestors: ancestors(el) } : null; })()
     };
+  }
+  function ancestors(el) {
+    const out = [];
+    for (let p = el.parentElement, i = 0; p && i < 10; p = p.parentElement, i++) {
+      out.push(`${p.tagName.toLowerCase()}${[...p.attributes].filter((a) => !['class', 'style'].includes(a.name)).map((a) => `[${a.name}${a.value ? `="${a.value.slice(0, 30)}"` : ''}]`).join('')}`);
+    }
+    return out;
   }
 
   // Trạng thái tài khoản: đã đăng nhập chưa + tên/email nếu giao diện có hiển thị.

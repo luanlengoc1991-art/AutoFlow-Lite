@@ -3,33 +3,34 @@
 <style>
   body { margin: 0; font: 14px system-ui; background: #212121; color: #eee; }
   #thread { padding: 16px 16px 160px; display: flex; flex-direction: column; gap: 12px; }
-  [data-message-author-role="user"] { align-self: flex-end; background: #333; padding: 8px 12px; border-radius: 12px; }
-  [data-message-author-role="assistant"] { padding: 8px 0; }
-  .markdown { white-space: pre-wrap; }
-  [data-message-author-role="assistant"] img { width: 300px; height: 225px; display: block; }
+  #thread { list-style: none; margin: 0; }
+  [data-message-role="user"] { align-self: flex-end; background: #333; padding: 8px 12px; border-radius: 12px; }
+  [data-message-role="assistant"] { padding: 8px 0; }
+  [data-assistant-markdown-root] { white-space: pre-wrap; }
+  [data-message-role="assistant"] img { width: 300px; height: 225px; display: block; }
   form { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); width: 640px; background: #2f2f2f; border-radius: 20px; padding: 10px; }
   #previews img { width: 48px; height: 48px; }
-  #prompt-textarea { min-height: 24px; outline: none; white-space: pre-wrap; }
+  #mobile-composer-prompt { width: 100%; min-height: 24px; outline: none; background: transparent; color: #eee; border: 0; resize: none; font: inherit; }
   button { background: #fff; color: #000; border: 0; border-radius: 999px; padding: 6px 12px; }
   button:disabled { opacity: .3; }
 </style></head>
 <body>
-<div id="thread"></div>
+<ol id="thread" aria-label="Conversation" data-conversation-transcript></ol>
 <form onsubmit="return false">
   <div id="previews"></div>
   <input type="file" multiple accept="image/*" style="display:none" id="upload">
-  <div id="prompt-textarea" contenteditable="true" class="ProseMirror"></div>
-  <div style="display:flex;justify-content:flex-end;margin-top:6px"><button data-testid="send-button" id="send" disabled aria-label="Send prompt">↑</button></div>
+  <textarea id="mobile-composer-prompt" aria-label="Chat with ChatGPT" placeholder="Ask anything"></textarea>
+  <div style="display:flex;justify-content:flex-end;margin-top:6px"><button aria-label="Add files and more" type="button">+</button><button id="send" disabled aria-label="Send message">↑</button></div>
 </form>
 <script>
-  // Giả lập ChatGPT: composer contenteditable, nút gửi/dừng, câu trả lời stream từng chữ, ảnh khi được yêu cầu vẽ.
+  // Giả lập ChatGPT (giao diện "octane" 2026, đo trên chatgpt.com): composer textarea, li[data-message-role], nút gửi/dừng, câu trả lời stream từng chữ, ảnh khi được yêu cầu vẽ.
   window.chatMock = { sent: [] };
-  const box = document.getElementById('prompt-textarea');
+  const box = document.getElementById('mobile-composer-prompt');
   const send = document.getElementById('send');
   const thread = document.getElementById('thread');
   const upload = document.getElementById('upload');
   let attachments = 0;
-  const refresh = () => { send.disabled = !box.innerText.trim(); };
+  const refresh = () => { send.disabled = !box.value.trim(); };
   box.addEventListener('input', refresh);
   upload.addEventListener('change', () => {
     for (const f of upload.files) {
@@ -40,17 +41,18 @@
     }
   });
   function reply(text) {
-    const user = document.createElement('div');
-    user.setAttribute('data-message-author-role', 'user');
-    user.textContent = text;
+    const user = document.createElement('li');
+    user.setAttribute('data-message-role', 'user');
+    user.innerHTML = '<div data-user-message-bubble><p data-user-message-copy></p></div>';
+    user.querySelector('p').textContent = text;
     thread.appendChild(user);
-    const bot = document.createElement('div');
-    bot.setAttribute('data-message-author-role', 'assistant');
-    bot.innerHTML = '<div class="markdown"></div>';
+    const bot = document.createElement('li');
+    bot.setAttribute('data-message-role', 'assistant');
+    bot.innerHTML = '<h6 style="display:none">ChatGPT said:</h6><div data-assistant-markdown data-assistant-markdown-root><section aria-label="DIL content"><p data-d-component="text"></p></section></div>';
     thread.appendChild(bot);
-    const md = bot.querySelector('.markdown');
+    const md = bot.querySelector('p');
     const stop = document.createElement('button');
-    stop.setAttribute('data-testid', 'stop-button');
+    stop.setAttribute('aria-label', 'Stop generating');
     stop.textContent = '■';
     send.replaceWith(stop);
     let answer;
@@ -75,23 +77,24 @@
       i += chunk;
       if (i < words.length) return;
       clearInterval(timer);
-      const done = () => { stop.replaceWith(send); box.innerHTML = ''; refresh(); };
+      // "outside": ảnh nằm ngoài khối câu trả lời; "stuckstop": nút Dừng không biến mất.
+      const done = () => { bot.setAttribute('data-message-complete', ''); if (!/stuckstop/i.test(text)) stop.replaceWith(send); else document.body.appendChild(send); box.value = ''; refresh(); };
       if (answer === 'Creating image') {
         setTimeout(() => {
           md.textContent = 'Image created';
           const img = document.createElement('img');
           img.src = `/asb/chatimg${Date.now()}=w400`;
-          bot.appendChild(img);
+          if (/outside/i.test(text)) { const wrap = document.createElement('div'); wrap.appendChild(img); thread.appendChild(wrap); } else bot.appendChild(img);
           done();
         }, 1500);
       } else done();
     }, 60);
   }
   send.addEventListener('click', () => {
-    const text = box.innerText.trim();
+    const text = box.value.trim();
     if (!text) return;
     window.chatMock.sent.push({ text, attachments });
-    box.innerHTML = '';
+    box.value = '';
     attachments = 0;
     document.getElementById('previews').innerHTML = '';
     reply(text);
