@@ -180,7 +180,7 @@ function previewHtml(n) {
   const pad = (k) => String(k).padStart(2, '0');
   const src = (m.kind !== 'video' && fullSrc.get(m.url)?.src) || m.thumb || (m.kind !== 'video' ? m.url : '');
   return `<div class="viewer has">${src ? `<img src="${esc(src)}" data-full="${esc(m.url || '')}" data-kind="${m.kind}" data-provider="${esc(m.provider || '')}" alt="">` : `<div class="ph">${m.kind === 'video' ? I.video : I.image}</div>`}
-    ${m.kind === 'video' ? '<span class="play-badge">▶</span>' : ''}
+    ${m.kind === 'video' ? '<span class="play-badge">▶</span>' : `<button class="edit-btn" data-act="edit-result" title="Sửa ảnh này ở node mới (node hiện tại giữ nguyên)">✎ Sửa ảnh</button>`}
     <span class="dims" data-info="${esc(m.url || '')}" data-kind="${m.kind}">${esc(mediaInfo.get(m.url) || '')}</span>
     ${media.length > 1 ? `<div class="pager"><button data-act="page-prev" title="Trước">‹</button><span>${pad(i + 1)}/${pad(media.length)}</span><button data-act="page-next" title="Sau">›</button></div>` : ''}</div>`;
 }
@@ -572,19 +572,48 @@ function renderBar() {
 }
 
 // ---------- Thao tác dữ liệu ----------
-function addNode(type, x, y, data) {
-  pushHistory();
+// Tạo node (không ghi lịch sử hoàn tác, không vẽ): dùng chung cho addNode và các thao tác tạo nhiều node.
+function placeNode(type, x, y, data) {
   const n = createNode(type, Math.round(x), Math.round(y), data);
   // Tên tự đánh số như "Text #1", "Image Generator #2".
   if (type !== 'note' && !data?.name) n.data.name = `${NODE_DEFS[type].title} #${wf.nodes.filter((m) => m.type === type).length + 1}`;
   if (type !== 'note') n.data.slug = uniqueSlug(n.data.name);
   wf.nodes.push(n);
+  return n;
+}
+function addNode(type, x, y, data) {
+  pushHistory();
+  const n = placeNode(type, x, y, data);
   nodesEl.appendChild(buildNode(n));
   if (type === 'note') renderAll();
   renderQuickStart();
   select([n.id]);
   dirty();
   return n;
+}
+
+// "Sửa ảnh": chụp đúng ảnh đang xem thành node Ảnh riêng, nối sang node AI mới cùng loại + ô yêu cầu sửa.
+// Node cũ không có dây ra node mới nên không bị chạy lại hay thay kết quả.
+function editResult(src) {
+  const res = statusOf(src)?.preview ? statusOf(src) : wf.results?.[src.id];
+  const media = (res?.preview || []).filter((p) => p.kind === 'image');
+  const m = media[Math.min(pages.get(src.id) || 0, media.length - 1)];
+  if (!m) { toast('Node chưa có ảnh để sửa'); return; }
+  pushHistory();
+  const x = src.x + (nodeEl(src.id)?.offsetWidth || 300) + 120, y = src.y;
+  const provider = NODE_DEFS[src.type].provider || 'flow';
+  const shot = placeNode('image', x, y, { name: `Ảnh cần sửa #${wf.nodes.filter((n) => n.type === 'image').length + 1}`, media: [{ kind: 'image', url: m.url, thumb: m.thumb, provider: m.provider || provider }] });
+  const ask = placeNode('prompt', x, y + 520, { name: `Yêu cầu sửa #${wf.nodes.filter((n) => n.type === 'prompt').length + 1}`, text: '' });
+  const keep = src.type === 'generate' ? { genType: 'image', model: src.data.model, ratio: src.data.ratio, quantity: 1 } : { newChat: src.data.newChat };
+  const gen = placeNode(src.type, x + 420, y, { name: `${src.data.name || NODE_DEFS[src.type].title} (sửa)`, ...keep });
+  wf.edges.push({ id: nid(), from: { node: shot.id, port: 'media' }, to: { node: gen.id, port: 'image_ref' } },
+    { id: nid(), from: { node: ask.id, port: 'text' }, to: { node: gen.id, port: 'text' } });
+  renderAll();
+  select([gen.id]);
+  dirty();
+  const ta = nodeEl(ask.id)?.querySelector('textarea[data-k="text"]');
+  if (ta) { ta.placeholder = 'Gõ yêu cầu sửa, vd: đổi chàng trai thành cô gái, giữ nguyên bối cảnh'; ta.focus(); }
+  toast('Gõ yêu cầu sửa rồi bấm ▶ trên node mới');
 }
 function uniqueSlug(name, selfId) {
   const base = slugify(name);
@@ -962,6 +991,7 @@ nodesEl.addEventListener('click', (e) => {
     tas[tas.length - 1]?.focus();
   }
   if (act === 'li-add-media') openFilePicker(id);
+  if (act === 'edit-result') editResult(n);
 });
 
 // Kéo thả file vào node Image/Video hoặc canvas.

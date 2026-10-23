@@ -318,3 +318,6 @@ details.adv summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 .lm img { object-fit: contain; }
 /* Nhãn kích thước nằm cạnh nút bật/tắt ở góc phải, không bị che. */
 .nb-media .viewer .dims { right: 46px; top: 10px; }
+/* Nút "Sửa ảnh" trên kết quả. */
+.edit-btn { position: absolute; right: 8px; bottom: 8px; z-index: 2; height: 24px; padding: 0 9px; border-radius: 999px; border: 0; background: rgba(0,0,0,.6); color: #eee; font-size: 11px; font-weight: 600; }
+.edit-btn:hover { background: var(--accent); color: var(--accent-ink); }

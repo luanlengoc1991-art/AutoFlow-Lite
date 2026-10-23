@@ -79,6 +79,8 @@ const listKind = (items) => {
   return kinds.size === 1 ? [...kinds][0] : kinds.size ? 'any' : '';
 };
 
+const GEN_TYPES = new Set(['generate', 'seedance', 'chatgpt', 'gemini', 'grok']);
+
 // Ghép prompt với ảnh: cùng số lượng thì ghép 1-1, khác thì mỗi prompt × mỗi ảnh.
 function combine(a, b) {
   if (a.length > 1 && a.length === b.length) return a.map((x, i) => [x, b[i]]);
@@ -329,12 +331,21 @@ export class WorkflowRunner {
     const { order, deps, bySlug, byId } = analyze(workflow);
     if (!order.length) throw new Error('Workflow trống, hãy thêm node');
     const cached = this.cache.get(workflow.id) || {};
+    // Kết quả đã lưu trong workflow (còn sau khi đóng side panel): node tạo ảnh/video chỉ nối ra cổng
+    // "media" dùng lại được, để chạy riêng node phía sau không tạo lại ảnh của node phía trước.
+    const saved = (id) => {
+      const n = byId.get(id), r = workflow.results?.[id];
+      if (!n || !GEN_TYPES.has(n.type) || r?.status !== 'done') return null;
+      if (workflow.edges.some((e) => e.from.node === id && e.from.port !== 'media')) return null;
+      const media = (r.preview || []).filter((p) => p.kind !== 'text' && p.url);
+      return media.length ? { media: media.map((p) => ({ ...p })) } : null;
+    };
     let runSet = null;
     if (opts.only?.length) {
       runSet = new Set(opts.only);
       // Node phía trước: dùng kết quả lần trước nếu có, nếu không thì chạy lại.
       const filledList = (id) => byId.get(id)?.type === 'list' && byId.get(id).data.items?.length > 0;
-      for (const id of ancestorsOf(opts.only, deps, filledList)) if (!runSet.has(id) && !cached[id]) runSet.add(id);
+      for (const id of ancestorsOf(opts.only, deps, filledList)) if (!runSet.has(id) && !cached[id] && !saved(id)) runSet.add(id);
     }
     const wanted = new Set(workflow.edges.map((e) => `${e.from.node}:${e.from.port}`));
     const ctx = {
@@ -356,7 +367,7 @@ export class WorkflowRunner {
         if (ctx.cancelled || this.runner.stopRequested) { ctx.cancelled = true; break; }
         if (runSet && !runSet.has(node.id)) {
           // List giữ đúng các mục đang hiển thị (có thể đã sửa tay), không dùng bản cache cũ.
-          ctx.outputs.set(node.id, node.type === 'list' && node.data.items?.length ? { items: node.data.items.map(listItem) } : cached[node.id] || {});
+          ctx.outputs.set(node.id, node.type === 'list' && node.data.items?.length ? { items: node.data.items.map(listItem) } : cached[node.id] || saved(node.id) || {});
           continue;
         }
         const st = this.state.nodes[node.id];

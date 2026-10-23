@@ -451,6 +451,24 @@ try {
   await sleep(1200);
   const renamed = await adEd.ev(`document.querySelector('.node[data-node=g1] > .label span')?.textContent`);
   check('đổi tên node bằng nhấp đúp vào tiêu đề', renamed === 'Shoe Image', renamed);
+  // "✎ Sửa ảnh": ảnh đang xem → node Ảnh riêng + Yêu cầu sửa + node Flow mới; chạy node mới không chạy lại node cũ.
+  const editIds = await adEd.ev(`(async()=>{const before=new Set([...document.querySelectorAll('.node')].map(n=>n.dataset.node));
+    document.querySelector('.node[data-node=g1] [data-act=edit-result]').click();await new Promise(r=>setTimeout(r,400));
+    const added=[...document.querySelectorAll('.node')].map(n=>n.dataset.node).filter(id=>!before.has(id));
+    const ta=added.map(id=>document.querySelector('.node[data-node="'+id+'"] textarea[data-k=text]')).find(Boolean);
+    if(!ta) return {added, error:'không thấy ô Yêu cầu sửa'};
+    ta.value='Change the sneaker to red';ta.dispatchEvent(new Event('input',{bubbles:true}));
+    document.getElementById('btn-save').click();await new Promise(r=>setTimeout(r,800));
+    const d=await chrome.storage.local.get('aflWorkflows');const w=d.aflWorkflows.find(x=>x.id==='wfad');
+    const nodes=w.nodes.filter(n=>added.includes(n.id));return {added:nodes.map(n=>n.type),gen:nodes.find(n=>n.type==='generate')?.id,edges:w.edges.filter(e=>added.includes(e.to.node)).length,
+      g1Out:w.edges.filter(e=>e.from.node==='g1'&&added.includes(e.to.node)).length}})()`);
+  check('✎ Sửa ảnh tạo node Ảnh + Yêu cầu sửa + node Flow mới, không nối từ node cũ', editIds.added.sort().join() === 'generate,image,prompt' && editIds.edges === 2 && editIds.g1Out === 0, editIds);
+  await P(`(async()=>{const {store}=await import('./lib/store.js');await store.load();return 1})()`);
+  const beforeEdit = (await flowPage.ev('window.mock.submits')).length;
+  await adEd.ev(`chrome.runtime.sendMessage({type:'afl:runWorkflow', id:'wfad', only:[${JSON.stringify(editIds.gen)}]})`);
+  for (let i = 0; i < 40; i++) { await sleep(1500); adState = await P(`document.getElementById('wf-run').innerText`); if (/Ad WF[\s\S]*đã kết thúc/.test(adState) && !/đang chạy/.test(adState)) break; }
+  const editSubs = (await flowPage.ev('window.mock.submits')).slice(beforeEdit);
+  check('chạy node sửa: Flow nhận đúng 1 lượt (yêu cầu sửa + ảnh cần sửa), node cũ không chạy lại', editSubs.length === 1 && editSubs[0].text === 'Change the sneaker to red' && editSubs[0].refs === 1, { editSubs, adState });
 
   // ---- Seedance (Dreamina giả lập): List 2 ảnh → mỗi ảnh một video, đúng model / tỉ lệ / thời lượng ----
   await P(`(async()=>{
