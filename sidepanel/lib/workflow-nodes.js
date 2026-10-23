@@ -21,6 +21,9 @@ export function canConnect(outType, inType) {
 }
 
 const isVideo = (d) => d.genType === 'video';
+// Prompt sửa kết quả: bấm ▶ trên Prompt nối vào đây thì node sửa chính ảnh/video đang có (không chạy lại node phía trước).
+// Ảnh: ảnh hiện tại làm tham chiếu + nội dung sửa. Video: tạo lại với đúng thiết lập/đầu vào, prompt gốc + nội dung sửa.
+const EDIT_PORT = { name: 'edit', type: 'text', multi: true, label: 'Prompt sửa kết quả' };
 export const PROVIDER_LABEL = { flow: 'Google Flow', chatgpt: 'ChatGPT', gemini: 'Gemini', grok: 'Grok', claude: 'Claude', seedance: 'Seedance' };
 // AI viết văn bản cho node Assistant / AI Agent.
 export const TEXT_AI = ['chatgpt', 'claude', 'gemini', 'grok'];
@@ -84,7 +87,8 @@ export const NODE_DEFS = {
       { name: 'text', type: 'text', multi: true, label: 'Prompt' },
       { name: 'frame_1', type: 'frame', multi: false, label: 'Khung đầu', when: (d) => isVideo(d) && d.videoMode === 'frames' },
       { name: 'frame_2', type: 'frame', multi: false, label: 'Khung cuối', when: (d) => isVideo(d) && d.videoMode === 'frames' },
-      { name: 'video_ref', type: 'video', multi: false, label: 'Video tham chiếu (chuyển động)', when: (d) => isVideo(d) && d.videoMode === 'ingredients' }
+      { name: 'video_ref', type: 'video', multi: false, label: 'Video tham chiếu (chuyển động)', when: (d) => isVideo(d) && d.videoMode === 'ingredients' },
+      EDIT_PORT
     ],
     outs: [
       { name: 'media', type: (d) => (isVideo(d) ? 'video' : 'image'), label: 'Kết quả' },
@@ -98,26 +102,27 @@ export const NODE_DEFS = {
     ins: [
       { name: 'frame_1', type: 'frame', multi: true, label: 'Khung đầu (mỗi ảnh một video)' },
       { name: 'frame_2', type: 'frame', multi: false, label: 'Khung cuối' },
-      { name: 'text', type: 'text', multi: true, label: 'Prompt' }
+      { name: 'text', type: 'text', multi: true, label: 'Prompt' },
+      EDIT_PORT
     ],
     outs: [{ name: 'media', type: 'video', label: 'Video' }],
     data: { genType: 'video', model: '', ratio: '', duration: '', prompt: '' }
   },
   chatgpt: {
     title: 'ChatGPT', icon: 'chat', group: 'Tạo', provider: 'chatgpt', desc: 'Tạo ảnh bằng ChatGPT.',
-    ins: [{ name: 'image_ref', type: 'image', multi: true, label: 'Ảnh tham chiếu' }, { name: 'text', type: 'text', multi: true, label: 'Prompt' }],
+    ins: [{ name: 'image_ref', type: 'image', multi: true, label: 'Ảnh tham chiếu' }, { name: 'text', type: 'text', multi: true, label: 'Prompt' }, EDIT_PORT],
     outs: [{ name: 'media', type: 'image', label: 'Ảnh' }],
     data: { prompt: '', newChat: true }
   },
   gemini: {
     title: 'Gemini', icon: 'chat', group: 'Tạo', provider: 'gemini', desc: 'Tạo ảnh bằng Gemini.',
-    ins: [{ name: 'image_ref', type: 'image', multi: true, label: 'Ảnh tham chiếu' }, { name: 'text', type: 'text', multi: true, label: 'Prompt' }],
+    ins: [{ name: 'image_ref', type: 'image', multi: true, label: 'Ảnh tham chiếu' }, { name: 'text', type: 'text', multi: true, label: 'Prompt' }, EDIT_PORT],
     outs: [{ name: 'media', type: 'image', label: 'Ảnh' }],
     data: { prompt: '', newChat: true }
   },
   grok: {
     title: 'Grok', icon: 'chat', group: 'Tạo', provider: 'grok', desc: 'Tạo ảnh bằng Grok.',
-    ins: [{ name: 'image_ref', type: 'image', multi: true, label: 'Ảnh tham chiếu' }, { name: 'text', type: 'text', multi: true, label: 'Prompt' }],
+    ins: [{ name: 'image_ref', type: 'image', multi: true, label: 'Ảnh tham chiếu' }, { name: 'text', type: 'text', multi: true, label: 'Prompt' }, EDIT_PORT],
     outs: [{ name: 'media', type: 'image', label: 'Ảnh' }],
     data: { prompt: '', newChat: true }
   },

@@ -496,7 +496,81 @@ try {
     const tip=document.querySelector('.edge-tip');
     return {g1,product,peek,sideDl,tip:tip.hidden?'':tip.textContent}})()`);
   check('thanh nổi có Reset/Tải/Copy prompt; node Ảnh không có Chạy; node video hiện prompt; rê dây hiện chú thích; bảng chi tiết có nút Tải',
-    ['run', 'reset', 'download', 'copy-prompt'].every((k) => ui.g1.includes(k)) && !ui.product.includes('run') && ui.peek === 'Create a 360 video of this product' && /→/.test(ui.tip) && ui.sideDl, ui);
+    ['run', 'reset', 'download', 'copy-prompt'].every((k) => ui.g1.includes(k)) && !ui.product.includes('run') && ui.product.includes('run-next') && ui.product.includes('run-branch') && ui.peek === 'Create a 360 video of this product' && /→/.test(ui.tip) && ui.sideDl, ui);
+
+  // ---- Sửa ngay trong node: Prompt 1 → ảnh; Prompt sửa nối cổng "edit"; bấm ▶ Prompt sửa → sửa chính ảnh đó ----
+  const runWf = async (id, only) => {
+    const before = (await flowPage.ev('window.mock.submits')).length;
+    await P(`(async()=>{const {store}=await import('./lib/store.js');await store.load();return 1})()`);
+    await adEd.ev(`chrome.runtime.sendMessage({type:'afl:runWorkflow', id:${JSON.stringify(id)}${only ? `, only:${JSON.stringify(only)}` : ''}})`);
+    let st = '';
+    for (let i = 0; i < 60; i++) { await sleep(1500); st = await P(`document.getElementById('wf-run').innerText`); if (/đã kết thúc/.test(st) && !/đang chạy/.test(st)) break; }
+    return { subs: (await flowPage.ev('window.mock.submits')).slice(before), st };
+  };
+  await P(`(async()=>{const N=(id,type,data)=>({id,type,x:0,y:0,data:Object.assign({name:id,slug:id,enabled:true},data)});
+    const nodes=[N('p1','prompt',{text:'a young man in an office',multi:false,agent:false}),N('img2','generate',{genType:'image',model:'',ratio:'9:16',quantity:1,videoMode:'frames',duration:'',prompt:''})];
+    const d=await chrome.storage.local.get('aflWorkflows');const list=(d.aflWorkflows||[]).filter(w=>w.id!=='wfedit');
+    list.unshift({id:'wfedit',name:'Edit WF',enabled:true,nodes,edges:[{id:'e1',from:{node:'p1',port:'text'},to:{node:'img2',port:'text'}}],results:{},updatedAt:Date.now()});
+    await chrome.storage.local.set({aflWorkflows:list});return 1})()`);
+  const e1 = await runWf('wfedit');
+  await P(`(async()=>{const d=await chrome.storage.local.get('aflWorkflows');const w=d.aflWorkflows.find(x=>x.id==='wfedit');
+    w.nodes.push({id:'p3',type:'prompt',x:0,y:400,data:{name:'p3',slug:'p3',enabled:true,text:'turn the man into a woman',multi:false,agent:false}});
+    w.edges.push({id:'e3',from:{node:'p3',port:'text'},to:{node:'img2',port:'edit'}});await chrome.storage.local.set({aflWorkflows:d.aflWorkflows});return 1})()`);
+  const e2 = await runWf('wfedit', ['p3']);
+  const e2Saved = await P(`(async()=>{const d=await chrome.storage.local.get('aflWorkflows');const r=d.aflWorkflows.find(x=>x.id==='wfedit').results.img2;return {count:r.count,prev:r.preview.map(p=>p.prompt||'')}})()`);
+  check('▶ trên Prompt sửa: Flow nhận đúng 1 lượt (nội dung sửa + ảnh hiện tại), Prompt 1 không chạy lại', e1.subs.length === 1 && e2.subs.length === 1 && e2.subs[0].text === 'turn the man into a woman' && e2.subs[0].refs === 1, { e1: e1.subs.map((x) => x.text), e2: e2.subs, st: e2.st });
+  check('node ảnh hiện ảnh đã sửa trước, vẫn giữ ảnh cũ để lật lại', e2Saved.count === 1 && e2Saved.prev[0] === 'turn the man into a woman' && e2Saved.prev.length === 2 && e2Saved.prev[1] === 'a young man in an office', e2Saved);
+  const e3 = await runWf('wfedit');
+  check('▶ Chạy workflow: tạo lại ảnh gốc rồi áp prompt sửa', e3.subs.length === 2 && e3.subs[0].text === 'a young man in an office' && e3.subs[1].text === 'turn the man into a woman' && e3.subs[1].refs === 1, e3.subs.map((x) => `${x.text} (${x.refs} ref)`));
+  // ---- 1 ảnh nối vào 3 node: chạy các node nối từ ảnh (nút ▶ 3) → cả 3 chạy, mỗi node nhận ảnh làm tham chiếu ----
+  await P(`(async()=>{const N=(id,type,data)=>({id,type,x:0,y:0,data:Object.assign({name:id,slug:id,enabled:true},data)});
+    const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const g=(id,p)=>N(id,'generate',{genType:'image',model:'',ratio:'1:1',quantity:1,videoMode:'frames',duration:'',prompt:p});
+    const nodes=[N('src','image',{media:[{kind:'image',dataUrl:png,mime:'image/png',thumb:png}]}),g('ga','variant A'),g('gb','variant B'),g('gc','variant C')];
+    const edges=['ga','gb','gc'].map(t=>({id:'e'+t,from:{node:'src',port:'media'},to:{node:t,port:'image_ref'}}));
+    const d=await chrome.storage.local.get('aflWorkflows');const list=(d.aflWorkflows||[]).filter(w=>w.id!=='wffan');
+    list.unshift({id:'wffan',name:'Fan WF',enabled:true,nodes,edges,results:{},updatedAt:Date.now()});await chrome.storage.local.set({aflWorkflows:list});return 1})()`);
+  const fan = await runWf('wffan', ['ga', 'gb', 'gc']);
+  check('1 ảnh nối vào 3 node: chạy các node nối từ ảnh → cả 3 chạy, mỗi node nhận ảnh làm tham chiếu', fan.subs.length === 3 && ['variant A', 'variant B', 'variant C'].every((t) => fan.subs.some((x) => x.text === t && x.refs === 1)), fan.subs.map((x) => `${x.text} (${x.refs} ref)`));
+  // ---- Sửa video: ảnh → video (khung đầu); Prompt sửa nối cổng "edit"; ▶ Prompt sửa → tạo lại video, cùng khung đầu, prompt gốc + sửa ----
+  await P(`(async()=>{const N=(id,type,data)=>({id,type,x:0,y:0,data:Object.assign({name:id,slug:id,enabled:true},data)});
+    const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const nodes=[N('vsrc','image',{media:[{kind:'image',dataUrl:png,mime:'image/png',thumb:png}]}),N('vp','prompt',{text:'the man walks into the office',multi:false,agent:false}),
+      N('vid','generate',{genType:'video',model:'',ratio:'16:9',quantity:1,videoMode:'frames',duration:'',prompt:''})];
+    const edges=[{id:'v1',from:{node:'vsrc',port:'media'},to:{node:'vid',port:'frame_1'}},{id:'v2',from:{node:'vp',port:'text'},to:{node:'vid',port:'text'}}];
+    const d=await chrome.storage.local.get('aflWorkflows');const list=(d.aflWorkflows||[]).filter(w=>w.id!=='wfvedit');
+    list.unshift({id:'wfvedit',name:'Video Edit WF',enabled:true,nodes,edges,results:{},updatedAt:Date.now()});await chrome.storage.local.set({aflWorkflows:list});return 1})()`);
+  const ve1 = await runWf('wfvedit');
+  await P(`(async()=>{const d=await chrome.storage.local.get('aflWorkflows');const w=d.aflWorkflows.find(x=>x.id==='wfvedit');
+    w.nodes.push({id:'vfix',type:'prompt',x:0,y:400,data:{name:'vfix',slug:'vfix',enabled:true,text:'slower camera',multi:false,agent:false}});
+    w.edges.push({id:'v3',from:{node:'vfix',port:'text'},to:{node:'vid',port:'edit'}});await chrome.storage.local.set({aflWorkflows:d.aflWorkflows});return 1})()`);
+  const ve2 = await runWf('wfvedit', ['vfix']);
+  const veSaved = await P(`(async()=>{const d=await chrome.storage.local.get('aflWorkflows');const r=d.aflWorkflows.find(x=>x.id==='wfvedit').results.vid;return {prev:r.preview.map(p=>p.kind+':'+(p.prompt||''))}})()`);
+  check('▶ Prompt sửa video: tạo lại video với cùng khung đầu, prompt gốc + nội dung sửa; node phía trước không chạy lại',
+    ve1.subs.length === 1 && ve2.subs.length === 1 && ve2.subs[0].mode === 'VIDEO' && ve2.subs[0].refs === 1 && ve2.subs[0].text.startsWith('the man walks into the office') && ve2.subs[0].text.includes('Edit: slower camera')
+      && veSaved.prev.length === 2 && veSaved.prev[0].startsWith('video:') && veSaved.prev[0].includes('slower camera'), { ve1: ve1.subs.map((x) => x.text), ve2: ve2.subs, veSaved });
+
+  // ---- Model video mặc định cũ "Omni 1.1 Flash" (không có trên Flow): task vẫn tạo xong, giữ model của Flow ----
+  const omniRun = async (syncedOptions) => {
+    await P(`(async()=>{const {store}=await import('./lib/store.js');store.settings.flowVideoModel='Omni 1.1 Flash';${syncedOptions ? '' : 'window.__opt=store.options;store.options=null;'}
+      const N=(id,type,data)=>({id,type,x:0,y:0,data:Object.assign({name:id,slug:id,enabled:true},data)});
+      const nodes=[N('op','prompt',{text:'omni default check',multi:false,agent:false}),N('ov','generate',{genType:'video',model:'',ratio:'16:9',quantity:1,videoMode:'frames',duration:'',prompt:''})];
+      const d=await chrome.storage.local.get('aflWorkflows');const list=(d.aflWorkflows||[]).filter(w=>w.id!=='wfomni');
+      list.unshift({id:'wfomni',name:'Omni WF',enabled:true,nodes,edges:[{id:'e1',from:{node:'op',port:'text'},to:{node:'ov',port:'text'}}],results:{},updatedAt:Date.now()});
+      await chrome.storage.local.set({aflWorkflows:list});store.workflows=list;return 1})()`);
+    const before = (await flowPage.ev('window.mock.submits')).length;
+    await P(`(()=>{document.querySelector('[data-tab=workflow]').click();document.querySelector('[data-sub=workflows]').click();document.querySelector('#wf-list [data-id=wfomni] [data-act=run]').click();})()`);
+    let st = '';
+    for (let i = 0; i < 60; i++) { await sleep(1500); st = await P(`document.getElementById('wf-run').innerText`); if (/Omni WF[\s\S]*đã kết thúc/.test(st)) break; }
+    const subs = (await flowPage.ev('window.mock.submits')).slice(before);
+    const task = await P(`(async()=>{const {store}=await import('./lib/store.js');const t=store.tasks.filter(x=>x.prompt==='omni default check').at(-1);${syncedOptions ? '' : 'store.options=window.__opt;'}return t&&{status:t.status,error:t.error||''}})()`);
+    return { subs, task, st };
+  };
+  const omni1 = await omniRun(true);
+  check('model mặc định "Omni 1.1 Flash" không có trong danh sách đã đồng bộ → bỏ qua, video vẫn tạo xong', omni1.task?.status === 'done' && omni1.subs.length === 1 && omni1.subs[0].model !== 'Omni 1.1 Flash' && omni1.subs[0].mode === 'VIDEO', omni1);
+  const omni2 = await omniRun(false);
+  check('chưa đồng bộ model: Flow không có model mặc định → giữ model hiện tại + cảnh báo, không lỗi task', omni2.task?.status === 'done' && omni2.subs.length === 1 && omni2.subs[0].mode === 'VIDEO', omni2);
+  await P(`(async()=>{const {store}=await import('./lib/store.js');store.settings.flowVideoModel='';return 1})()`);
 
   // ---- Seedance (Dreamina giả lập): List 2 ảnh → mỗi ảnh một video, đúng model / tỉ lệ / thời lượng ----
   await P(`(async()=>{

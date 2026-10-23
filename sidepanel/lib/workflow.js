@@ -80,6 +80,8 @@ const listKind = (items) => {
 };
 
 const GEN_TYPES = new Set(['generate', 'seedance', 'chatgpt', 'gemini', 'grok']);
+// Dấu nội dung yêu cầu của node AI (để biết câu trả lời đã lưu còn đúng không).
+const aiSig = (n) => JSON.stringify([n.data.text, n.data.agentInstruction, n.data.agentProvider, n.data.provider, n.data.exportAs, n.data.agentSplit, n.data.multi]);
 
 // Ghép prompt với ảnh: cùng số lượng thì ghép 1-1, khác thì mỗi prompt × mỗi ảnh.
 function combine(a, b) {
@@ -152,6 +154,70 @@ export class WorkflowRunner {
       const items = Object.values(ctx.outputs.get(src.id) || {}).flat().filter((i) => i.kind === 'text');
       return items.length ? items.map((i) => i.text).join('\n') : m;
     }).trim();
+  }
+
+  // Một lượt tạo trên provider của node (Flow / Seedance / trang chat).
+  genTask(node, d, ctx, { prompt, refIds }, isVideo, single = false) {
+    const common = { workflowRun: ctx.runId, autoDownload: false, refIds, prompt };
+    if (node.type === 'seedance') return this.enqueue({ ...common, provider: 'seedance', genType: 'video', model: d.model || '', ratio: d.ratio || '', duration: d.duration || '' });
+    if (node.type === 'generate') {
+      return this.enqueue({
+        ...common, provider: 'flow', genType: isVideo ? 'video' : 'image',
+        videoMode: isVideo ? (refIds.length ? d.videoMode : 'text') : 'text',
+        model: d.model || '', ratio: d.ratio || '', quantity: single ? 1 : Math.min(4, Math.max(1, +d.quantity || 1)),
+        duration: isVideo ? d.duration || '' : '', resolution: ''
+      });
+    }
+    return this.enqueue({ ...common, provider: node.type, chatMode: 'image', newChat: d.newChat !== false });
+  }
+
+  // Tạo ảnh/video gốc từ prompt + ảnh tham chiếu nối vào node.
+  async generateMedia(node, inputs, ctx, texts, isVideo, opts = {}) {
+    const d = node.data;
+    const own = this.resolveMentions(d.prompt, ctx);
+    let prompts = opts.rawPrompt ? [opts.rawPrompt]
+      : texts.length ? texts.map((t) => (own ? (own.includes('{input}') ? own.replaceAll('{input}', t) : `${own} ${t}`) : t)) : own ? [own] : [];
+    const isSeedance = node.type === 'seedance';
+    const usesFrames = isSeedance || (isVideo && d.videoMode === 'frames');
+    // Seedance tạo được video chỉ từ ảnh khung đầu.
+    if (!prompts.length && isSeedance && inputs.frame_1?.length) prompts = [''];
+    if (!prompts.length) throw new Error('Chưa có prompt (nối node Prompt hoặc nhập prompt trong node)');
+    // Mỗi lượt: một prompt + bộ ảnh tham chiếu của lượt đó.
+    let jobs;
+    if (usesFrames) {
+      const end = inputs.frame_2?.[0] ? await this.toRef(inputs.frame_2[0]) : null;
+      const starts = [];
+      for (const it of inputs.frame_1 || []) starts.push(await this.toRef(it));
+      jobs = combine(prompts, starts.length ? starts : [null]).map(([prompt, start]) => ({ prompt, refIds: [start, end].filter(Boolean) }));
+    } else {
+      const refs = [];
+      for (const it of inputs.image_ref || []) refs.push(await this.toRef(it));
+      // Ingredients: video chuyển động mẫu cũng được tải lên làm thành phần.
+      const extra = isVideo && inputs.video_ref?.[0] ? [await this.toRef(inputs.video_ref[0])] : [];
+      jobs = d.perImage && refs.length > 1
+        ? combine(prompts, refs).map(([prompt, ref]) => ({ prompt, refIds: [ref, ...extra] }))
+        : prompts.map((prompt) => ({ prompt, refIds: [...refs, ...extra] }));
+    }
+    if (opts.single) jobs = jobs.slice(0, 1);
+    const tasks = jobs.map((job) => this.genTask(node, d, ctx, job, isVideo, !!opts.single));
+    const st = ctx.nodeState;
+    if (st) {
+      Object.assign(st, { total: tasks.length, done: 0 });
+      // Thông tin lượt chạy cho tab "Kết quả" của trình soạn.
+      st.info = {
+        provider: tasks[0]?.provider || node.type, genType: isVideo ? 'video' : 'image', model: d.model || '', ratio: d.ratio || '', duration: isVideo ? d.duration || '' : '',
+        videoMode: node.type === 'generate' && isVideo ? d.videoMode : '', prompts: jobs.slice(0, 20).map((j) => j.prompt.slice(0, 4000)), refs: jobs[0]?.refIds.length || 0
+      };
+    }
+    this.onUpdate();
+    await this.waitTasks(tasks, (done) => { if (st) st.done = done; });
+    const media = [];
+    for (const t of tasks) {
+      if (t.status !== 'done') { ctx.errors.push(`#${t.index}: ${t.error || t.status}`); continue; }
+      for (const r of t.results || []) media.push({ kind: r.kind, url: r.url, thumb: r.thumb, provider: t.provider || 'flow', prompt: t.prompt });
+    }
+    if (!media.length && tasks.length) throw new Error(tasks.map((t) => t.error).filter(Boolean)[0] || 'Không có kết quả');
+    return media;
   }
 
   // inputs: { portName: items[] }. Trả về { outPortName: items[] }.
@@ -241,60 +307,57 @@ export class WorkflowRunner {
       case 'chatgpt':
       case 'gemini':
       case 'grok': {
-        const own = this.resolveMentions(d.prompt, ctx);
-        let prompts = texts.length ? texts.map((t) => (own ? (own.includes('{input}') ? own.replaceAll('{input}', t) : `${own} ${t}`) : t)) : own ? [own] : [];
         const isSeedance = node.type === 'seedance';
         const isVideo = isSeedance || (node.type === 'generate' && d.genType === 'video');
-        const usesFrames = isSeedance || (isVideo && d.videoMode === 'frames');
-        // Seedance tạo được video chỉ từ ảnh khung đầu.
-        if (!prompts.length && isSeedance && inputs.frame_1?.length) prompts = [''];
-        if (!prompts.length) throw new Error('Chưa có prompt (nối node Prompt hoặc nhập prompt trong node)');
-        // Mỗi lượt: một prompt + bộ ảnh tham chiếu của lượt đó.
-        let jobs;
-        if (usesFrames) {
-          const end = inputs.frame_2?.[0] ? await this.toRef(inputs.frame_2[0]) : null;
-          const starts = [];
-          for (const it of inputs.frame_1 || []) starts.push(await this.toRef(it));
-          jobs = combine(prompts, starts.length ? starts : [null]).map(([prompt, start]) => ({ prompt, refIds: [start, end].filter(Boolean) }));
-        } else {
-          const refs = [];
-          for (const it of inputs.image_ref || []) refs.push(await this.toRef(it));
-          // Ingredients: video chuyển động mẫu cũng được tải lên làm thành phần.
-          const extra = isVideo && inputs.video_ref?.[0] ? [await this.toRef(inputs.video_ref[0])] : [];
-          jobs = d.perImage && refs.length > 1
-            ? combine(prompts, refs).map(([prompt, ref]) => ({ prompt, refIds: [ref, ...extra] }))
-            : prompts.map((prompt) => ({ prompt, refIds: [...refs, ...extra] }));
-        }
-        const tasks = jobs.map(({ prompt, refIds }) => {
-          const common = { workflowRun: ctx.runId, autoDownload: false, refIds, prompt };
-          if (isSeedance) return this.enqueue({ ...common, provider: 'seedance', genType: 'video', model: d.model || '', ratio: d.ratio || '', duration: d.duration || '' });
-          if (node.type === 'generate') {
-            return this.enqueue({
-              ...common, provider: 'flow', genType: isVideo ? 'video' : 'image',
-              videoMode: isVideo ? (refIds.length ? d.videoMode : 'text') : 'text',
-              model: d.model || '', ratio: d.ratio || '', quantity: Math.min(4, Math.max(1, +d.quantity || 1)),
-              duration: isVideo ? d.duration || '' : '', resolution: ''
-            });
-          }
-          return this.enqueue({ ...common, provider: node.type, chatMode: 'image', newChat: d.newChat !== false });
-        });
         const st = ctx.nodeState;
-        if (st) {
-          Object.assign(st, { total: tasks.length, done: 0 });
-          // Thông tin lượt chạy cho tab "Kết quả" của trình soạn.
-          st.info = {
-            provider: tasks[0]?.provider || node.type, genType: isVideo ? 'video' : 'image', model: d.model || '', ratio: d.ratio || '', duration: isVideo ? d.duration || '' : '',
-            videoMode: node.type === 'generate' && isVideo ? d.videoMode : '', prompts: jobs.slice(0, 20).map((j) => j.prompt.slice(0, 4000)), refs: jobs[0]?.refIds.length || 0
-          };
+        // Prompt sửa kết quả (cổng "edit"): áp lần lượt lên ảnh/video mới nhất của chính node này.
+        const edits = (inputs.edit || []).filter((i) => i.kind === 'text').map((i) => i.text.trim()).filter(Boolean);
+        // Chỉ sửa (bấm ▶ trên Prompt sửa): dùng ảnh/video đang có của node, không tạo lại bản gốc.
+        const base = ctx.editOnly?.has(node.id) ? ctx.saved(node.id)?.media || [] : [];
+        let media, history = [];
+        if (base.length && edits.length) {
+          media = [base[0]];
+          history = base;
+          if (st) st.info = { ...(ctx.savedInfo(node.id) || {}), editOnly: true };
+        } else {
+          media = await this.generateMedia(node, inputs, ctx, texts, isVideo);
         }
-        this.onUpdate();
-        await this.waitTasks(tasks, (done) => { if (st) st.done = done; });
-        const media = [];
-        for (const t of tasks) {
-          if (t.status !== 'done') { ctx.errors.push(`#${t.index}: ${t.error || t.status}`); continue; }
-          for (const r of t.results || []) media.push({ kind: r.kind, url: r.url, thumb: r.thumb, provider: t.provider || 'flow', prompt: t.prompt });
+        if (edits.length) {
+          const versions = [];
+          let cur = media[0];
+          if (st) Object.assign(st, { total: edits.length, done: 0 });
+          for (const edit of edits) {
+            if (ctx.cancelled) break;
+            if (isVideo) {
+              // Video: tạo lại với đúng thiết lập + đầu vào của node (khung đầu/cuối, ảnh tham chiếu),
+              // prompt gốc + yêu cầu sửa; Ingredients thì kèm video hiện tại làm video tham chiếu.
+              const vInputs = { ...inputs };
+              if (node.type === 'generate' && d.videoMode === 'ingredients') vInputs.video_ref = [cur];
+              const prompt = `${cur.prompt || texts.join('\n') || this.resolveMentions(d.prompt, ctx)}\n\nEdit: ${edit}`.trim();
+              try {
+                const got = await this.generateMedia(node, vInputs, ctx, [], true, { rawPrompt: prompt, single: true });
+                cur = got[0];
+                versions.unshift(cur);
+              } catch (e) { ctx.errors.push(`Sửa "${edit.slice(0, 40)}": ${e.message}`); break; }
+              continue;
+            }
+            const task = this.genTask(node, d, ctx, { prompt: edit, refIds: [await this.toRef(cur)] }, false, true);
+            this.onUpdate();
+            await this.waitTasks([task]);
+            if (st) st.done = (st.done || 0) + 1;
+            const r = task.status === 'done' && task.results?.find((x) => x.kind === 'image');
+            if (!r) { ctx.errors.push(`Sửa "${edit.slice(0, 40)}": ${task.error || 'không có kết quả'}`); break; }
+            cur = { kind: 'image', url: r.url, thumb: r.thumb, provider: task.provider || 'flow', prompt: edit };
+            versions.unshift(cur);
+          }
+          if (!versions.length) throw new Error(ctx.errors.at(-1) || 'Sửa không thành công');
+          if (st) {
+            // Ảnh mới nhất hiện trước; các phiên bản cũ vẫn lật lại xem được.
+            st.previewItems = [...versions, ...(history.length ? history : media)];
+            st.info = { ...(st.info || {}), edits: edits.slice(0, versions.length) };
+          }
+          return { media: [cur] };
         }
-        if (!media.length && tasks.length) throw new Error(tasks.map((t) => t.error).filter(Boolean)[0] || 'Không có kết quả');
         const out = { media };
         if (isVideo && ctx.wanted.has(`${node.id}:frame`)) {
           out.frame = [];
@@ -343,21 +406,33 @@ export class WorkflowRunner {
     // "media" dùng lại được, để chạy riêng node phía sau không tạo lại ảnh của node phía trước.
     const saved = (id) => {
       const n = byId.get(id), r = workflow.results?.[id];
-      if (!n || !GEN_TYPES.has(n.type) || r?.status !== 'done') return null;
+      if (!n || r?.status !== 'done') return null;
+      // Câu trả lời AI đã có (AI Agent / Assistant): dùng lại, không gọi AI lần nữa (bỏ qua nếu bị cắt ngắn khi lưu).
+      if (n.type === 'assistant' || (n.type === 'prompt' && n.data.agent)) {
+        const texts = (r.preview || []).filter((p) => p.kind === 'text');
+        if (r.sig !== aiSig(n)) return null; // đã sửa yêu cầu sau lần chạy trước: hỏi AI lại
+        return texts.length && texts.every((p) => p.text.length < 2000) ? { text: texts.map((p) => ({ kind: 'text', text: p.text })) } : null;
+      }
+      if (!GEN_TYPES.has(n.type)) return null;
       if (workflow.edges.some((e) => e.from.node === id && e.from.port !== 'media')) return null;
       const media = (r.preview || []).filter((p) => p.kind !== 'text' && p.url);
       return media.length ? { media: media.map((p) => ({ ...p })) } : null;
     };
     let runSet = null;
+    const editOnly = new Set();
     if (opts.only?.length) {
       runSet = new Set(opts.only);
+      for (const e of workflow.edges) if (opts.only.includes(e.from.node) && e.to.port === 'edit' && !opts.only.includes(e.to.node) && saved(e.to.node)) editOnly.add(e.to.node);
       // Node phía trước: dùng kết quả lần trước nếu có, nếu không thì chạy lại.
       const filledList = (id) => byId.get(id)?.type === 'list' && byId.get(id).data.items?.length > 0;
       for (const id of ancestorsOf(opts.only, deps, filledList)) if (!runSet.has(id) && !cached[id] && !saved(id)) runSet.add(id);
+      // Node được sửa không chạy lại các node phía trước nó (dùng ảnh đang có).
+      editOnly.forEach((id) => runSet.add(id));
     }
     const wanted = new Set(workflow.edges.map((e) => `${e.from.node}:${e.from.port}`));
     const ctx = {
       runId: uid(), cancelled: false, errors: [], bySlug, outputs: new Map(), wanted, name: workflow.name,
+      editOnly, saved, savedInfo: (id) => workflow.results?.[id]?.info || null,
       folder: `${store.settings.folder || 'AutoFlow'}/${workflow.name.replace(/[\\/:*?"<>|]+/g, '_')}`
     };
     this.ctx = ctx;
@@ -375,13 +450,21 @@ export class WorkflowRunner {
         if (ctx.cancelled || this.runner.stopRequested) { ctx.cancelled = true; break; }
         if (runSet && !runSet.has(node.id)) {
           // List giữ đúng các mục đang hiển thị (có thể đã sửa tay), không dùng bản cache cũ.
-          ctx.outputs.set(node.id, node.type === 'list' && node.data.items?.length ? { items: node.data.items.map(listItem) } : cached[node.id] || saved(node.id) || {});
+          let out = node.type === 'list' && node.data.items?.length ? { items: node.data.items.map(listItem) } : cached[node.id] || saved(node.id);
+          // Node không tốn lượt (Text, Prompt thường, Ảnh tải lên, Text Extract): đọc lại ngay thay vì để trống.
+          if (!out && node.data.enabled !== false && (['text', 'image', 'extract'].includes(node.type) || (node.type === 'prompt' && !node.data.agent))) {
+            const inputs = {};
+            for (const e of workflow.edges.filter((x) => x.to.node === node.id)) (inputs[e.to.port] ||= []).push(...(ctx.outputs.get(e.from.node)?.[e.from.port] || []));
+            ctx.nodeState = null;
+            out = await this.execNode(node, inputs, ctx).catch(() => ({}));
+          }
+          ctx.outputs.set(node.id, out || {});
           continue;
         }
         const st = this.state.nodes[node.id];
         const inputs = {};
         let hasUpstream = false, upstreamItems = 0;
-        for (const e of workflow.edges.filter((x) => x.to.node === node.id)) {
+        for (const e of workflow.edges.filter((x) => x.to.node === node.id && (!editOnly.has(node.id) || x.to.port !== 'edit' || opts.only.includes(x.from.node)))) {
           hasUpstream = true;
           const items = ctx.outputs.get(e.from.node)?.[e.from.port] || [];
           upstreamItems += items.length;
@@ -398,7 +481,9 @@ export class WorkflowRunner {
           const out = await this.execNode(node, inputs, ctx);
           ctx.outputs.set(node.id, out);
           const items = Object.values(out).flat();
-          Object.assign(st, { status: 'done', count: items.length, preview: preview(items, node.type === 'list' ? MAX_LIST : 24), finishedAt: Date.now() });
+          Object.assign(st, { status: 'done', count: items.length, preview: preview(st.previewItems || items, node.type === 'list' ? MAX_LIST : 24), finishedAt: Date.now() });
+          delete st.previewItems;
+          if (node.type === 'assistant' || (node.type === 'prompt' && node.data.agent)) st.sig = aiSig(node);
         } catch (e) {
           ctx.outputs.set(node.id, {});
           Object.assign(st, { status: 'error', error: e.message });

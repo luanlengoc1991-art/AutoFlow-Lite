@@ -6,7 +6,7 @@ import { buildFilename, extFor } from './prompts.js';
 import { applyFlowDefaults, chatOptions, genOptions } from './defaults.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const FLOW_FIELDS = ['prompt', 'genType', 'videoMode', 'model', 'ratio', 'quantity', 'duration', 'resolution'];
+const FLOW_FIELDS = ['prompt', 'genType', 'videoMode', 'model', 'modelStrict', 'ratio', 'quantity', 'duration', 'resolution'];
 const FINAL = new Set(['done', 'error', 'cancelled']);
 // Độ phân giải cần tải qua menu của Flow (upscale); "original" tải thẳng file gốc.
 const UPSCALE = { image: ['2k', '4k'], video: ['1080p', '4k'] };
@@ -153,7 +153,7 @@ export class Runner {
     const payload = isChat
       ? { chatMode: task.chatMode || 'image', ...chatOptions(provider, task, store.settings) }
       : kind === 'gen' ? genOptions(task, store.settings)
-      : { ...Object.fromEntries(FLOW_FIELDS.map((k) => [k, applyFlowDefaults(task, store.settings)[k]])), keepRefs: store.settings.keepRefs };
+      : { ...Object.fromEntries(FLOW_FIELDS.map((k) => [k, applyFlowDefaults(task, store.settings, store.options)[k]])), keepRefs: store.settings.keepRefs };
     payload.refs = store.getRefs(task.refIds);
     let res;
     try {

@@ -998,7 +998,7 @@ async function runWorkflow(id, only) {
     if (cur && wfRunner.state) {
       cur.results = { ...(cur.results || {}) };
       for (const [nodeId, s] of Object.entries(wfRunner.state.nodes)) {
-        cur.results[nodeId] = { status: s.status, count: s.count, error: s.error || '', preview: s.preview || [], info: s.info || null, startedAt: s.startedAt || 0, finishedAt: s.finishedAt || 0 };
+        cur.results[nodeId] = { status: s.status, count: s.count, error: s.error || '', preview: s.preview || [], info: s.info || null, startedAt: s.startedAt || 0, finishedAt: s.finishedAt || 0, ...(s.sig ? { sig: s.sig } : {}) };
         // Node List giữ các mục vừa nhận để sửa tay và chạy lại các node phía sau.
         const node = s.listItems && cur.nodes?.find((n) => n.id === nodeId);
         if (node) Object.assign(node.data, { items: s.listItems, ...(s.listKind ? { kind: s.listKind } : {}) });

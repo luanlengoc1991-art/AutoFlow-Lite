@@ -359,3 +359,11 @@ details.adv summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 .edge-tip b { font-weight: 600; color: #fff; }
 .edge-tip div { color: var(--muted); }
 .edge-tip span { color: var(--accent); }
+
+/* Cổng "Prompt sửa kết quả" và nút sửa trên ảnh. */
+.port.edit-port { font-size: 11px; color: #f5c542; border-color: rgba(245,197,66,.5); }
+.edit-btns { position: absolute; right: 8px; bottom: 8px; z-index: 2; display: flex; gap: 4px; }
+.edit-btns .edit-btn { position: static; }
+/* Nút "chạy các node nối từ đây" có số lượng. */
+.node-bar button.wide { width: auto; padding: 0 8px; gap: 3px; display: inline-flex; align-items: center; color: var(--accent); }
+.node-bar button.wide b { font-size: 11px; }

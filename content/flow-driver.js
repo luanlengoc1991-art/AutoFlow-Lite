@@ -351,7 +351,9 @@
       }
       if (task.model) {
         const r = await selectModel(task.model);
-        if (!r.ok) throw new Error(r.error + (r.available ? ` (có: ${r.available.join(', ')})` : ''));
+        const detail = r.error + (r.available ? ` (có: ${r.available.join(', ')})` : '');
+        if (!r.ok && task.modelStrict) throw new Error(detail);
+        if (!r.ok) warnings.push(`Model mặc định "${task.model}" không có trên Flow, giữ model hiện tại (${detail})`);
       }
       if (task.genType === 'video' && task.duration) {
         const r = await selectOption(durationSpec(task.duration), `duration:${task.duration}`);

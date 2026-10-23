@@ -7,7 +7,7 @@ export const PLATFORM_DEFAULTS = {
   flowImageRatio: '9:16',
   flowVideoRatio: '9:16',
   flowImageModel: 'Nano Banana 2.1',
-  flowVideoModel: 'Omni 1.1 Flash',
+  flowVideoModel: '',
   flowDuration: '',
   chatgptRatio: '9:16',
   chatgptModel: 'instant',
@@ -29,7 +29,7 @@ export const PLATFORM_DEFAULTS = {
   seedanceDuration: '5s',
   seedanceAutoClose: false
 };
-const PLATFORM_DEFAULTS_V = 2;
+const PLATFORM_DEFAULTS_V = 3;
 
 export const DEFAULT_SETTINGS = {
   concurrency: 1,
@@ -116,6 +116,8 @@ class Store {
     // Bản 0.5.0 lưu ô trống cho Nền tảng AI: điền mặc định một lần.
     if (this.settings.platformDefaultsV !== PLATFORM_DEFAULTS_V) {
       for (const [k, v] of Object.entries(PLATFORM_DEFAULTS)) if (this.settings[k] === '' || this.settings[k] === undefined) this.settings[k] = v;
+      // "Omni 1.1 Flash" (mặc định cũ) không có trên Google Flow: về "Giữ như Flow".
+      if (this.settings.flowVideoModel === 'Omni 1.1 Flash') this.settings.flowVideoModel = '';
       this.settings.platformDefaultsV = PLATFORM_DEFAULTS_V;
       await chrome.storage.local.set({ [KEYS.settings]: this.settings });
     }

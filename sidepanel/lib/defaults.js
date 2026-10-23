@@ -2,7 +2,8 @@
 // (Gen, workflow, MCP, Telegram, công cụ) dùng chung một quy tắc: trường để trống mới lấy mặc định.
 
 export const FLOW_IMAGE_MODELS = ['Nano Banana 2.1', 'Nano Banana Pro', 'Nano Banana 2', 'Imagen 4'];
-export const FLOW_VIDEO_MODELS = ['Omni 1.1 Flash', 'Veo 3.1 - Lite', 'Veo 3.1 - Fast', 'Veo 3.1 - Quality', 'Veo 3.1 - Lite [Lower Priority]'];
+// Gợi ý khi chưa "Đồng bộ từ Flow"; danh sách thật lấy từ tài khoản sau khi đồng bộ.
+export const FLOW_VIDEO_MODELS = ['Veo 3.1 - Fast', 'Veo 3.1 - Quality', 'Veo 3.1 - Lite', 'Veo 3.1 - Lite [Lower Priority]'];
 export const FLOW_RATIOS = ['16:9', '4:3', '1:1', '3:4', '9:16'];
 export const FLOW_DURATIONS = ['4s', '6s', '8s'];
 
@@ -52,11 +53,20 @@ export const CHAT_RATIOS = {
   grok: [['9:16', '9:16 (Dọc)'], ['16:9', '16:9 (Ngang)'], ['1:1', '1:1 (Vuông)'], ['2:3', '2:3 (Dọc)'], ['3:2', '3:2 (Ngang)']]
 };
 
+// So tên model bỏ emoji/ký hiệu (vd. "🍌 Nano Banana Pro" của Flow ≈ "Nano Banana Pro").
+const modelKey = (v) => String(v || '').replace(/[^\p{L}\p{N}.:\s-]/gu, '').replace(/\s+/g, ' ').trim().toLowerCase();
+
 // Điền các trường Flow còn trống từ mặc định (không ghi đè lựa chọn của task).
-export function applyFlowDefaults(task, s) {
+// options: danh sách đã "Đồng bộ từ Flow"; model mặc định không có trong tài khoản thì bỏ qua (giữ model của Flow).
+// modelStrict: model do task chọn (không có trên Flow thì báo lỗi); model mặc định chỉ cảnh báo.
+export function applyFlowDefaults(task, s, options) {
   const video = task.genType === 'video';
-  const out = { ...task };
-  if (!out.model) out.model = (video ? s.flowVideoModel : s.flowImageModel) || '';
+  const out = { ...task, modelStrict: !!task.model };
+  if (!out.model) {
+    const def = (video ? s.flowVideoModel : s.flowImageModel) || '';
+    const synced = options?.[video ? 'video' : 'image']?.models || [];
+    out.model = def && (!synced.length || synced.some((m) => modelKey(m) === modelKey(def))) ? def : '';
+  }
   if (!out.ratio) out.ratio = (video ? s.flowVideoRatio : s.flowImageRatio) || '';
   if (video && !out.duration) out.duration = s.flowDuration || '';
   return out;

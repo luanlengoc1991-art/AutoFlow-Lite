@@ -180,7 +180,7 @@ function previewHtml(n) {
   const pad = (k) => String(k).padStart(2, '0');
   const src = (m.kind !== 'video' && fullSrc.get(m.url)?.src) || m.thumb || (m.kind !== 'video' ? m.url : '');
   return `<div class="viewer has">${src ? `<img src="${esc(src)}" data-full="${esc(m.url || '')}" data-kind="${m.kind}" data-provider="${esc(m.provider || '')}" alt="">` : `<div class="ph">${m.kind === 'video' ? I.video : I.image}</div>`}
-    ${m.kind === 'video' ? '<span class="play-badge">▶</span>' : `<button class="edit-btn" data-act="edit-result" title="Sửa ảnh này ở node mới (node hiện tại giữ nguyên)">✎ Sửa ảnh</button>`}
+    ${m.kind === 'video' ? '<span class="play-badge">▶</span><span class="edit-btns"><button class="edit-btn" data-act="edit-inplace" title="Thêm prompt sửa nối vào node này: bấm ▶ trên prompt đó để tạo lại video với cùng thiết lập + nội dung sửa">✎ Sửa video</button></span>' : `<span class="edit-btns"><button class="edit-btn" data-act="edit-inplace" title="Thêm prompt sửa nối vào node này: bấm ▶ trên prompt đó để sửa chính ảnh đang có">✎ Sửa ảnh</button><button class="edit-btn" data-act="edit-result" title="Chép ảnh sang nhánh mới để sửa riêng (node này giữ nguyên)">⎇</button></span>`}
     <span class="dims" data-info="${esc(m.url || '')}" data-kind="${m.kind}">${esc(mediaInfo.get(m.url) || '')}</span>
     ${media.length > 1 ? `<div class="pager"><button data-act="page-prev" title="Trước">‹</button><span>${pad(i + 1)}/${pad(media.length)}</span><button data-act="page-next" title="Sau">›</button></div>` : ''}</div>`;
 }
@@ -376,7 +376,7 @@ function portsHtml(n) {
   const ins = portsOf(n, 'in'), outs = portsOf(n, 'out');
   const p = (port, dir, style) => {
     const type = portType(n, port);
-    return `<div class="port ${dir}" data-dir="${dir}" data-port="${port.name}" data-type="${type}" style="${style}">${portGlyph(type)}<span class="tip">${esc(port.label)} · ${esc(PORT_TYPES[type].label)}</span></div>`;
+    return `<div class="port ${dir} ${port.name === 'edit' ? 'edit-port' : ''}" data-dir="${dir}" data-port="${port.name}" data-type="${type}" style="${style}">${port.name === 'edit' ? '✎' : portGlyph(type)}<span class="tip">${esc(port.label)} · ${esc(PORT_TYPES[type].label)}</span></div>`;
   };
   return outs.map((port, i) => p(port, 'out', `top:${34 + i * 32}px`)).join('')
     + ins.map((port, i) => p(port, 'in', `bottom:${(n.type === 'generate' || NODE_DEFS[n.type].provider ? 46 : 16) + (ins.length - 1 - i) * 32}px`)).join('');
@@ -581,7 +581,10 @@ function renderBar() {
   const runnable = n.type !== 'image';
   const hasMedia = mediaResults(n).length > 0;
   const prompt = promptOf(n);
+  const kids = childrenOf(n.id), branch = descendantsOf(n.id);
   bar.innerHTML = `${runnable ? `<button data-bar="run" title="Chạy node">${I.play}</button>` : ''}
+    ${kids.length ? `<button data-bar="run-next" class="wide" title="Chạy ${kids.length} node nối từ đây (dùng kết quả đang có của node này)">${I.play}<b>${kids.length}</b></button>` : ''}
+    ${branch.length > kids.length ? `<button data-bar="run-branch" title="Chạy tiếp cả nhánh phía sau (${branch.length} node)">⏩</button>` : ''}
     <button data-bar="reset" title="Reset node (xoá kết quả, giữ cấu hình)">${I.refresh}</button>
     ${hasMedia ? `<button data-bar="download" title="Tải kết quả của node">${I.download.replace(/13/g, '15')}</button>` : ''}
     <button data-bar="config" title="Cấu hình">${I.gear}</button>
@@ -592,6 +595,21 @@ function renderBar() {
   bar.style.top = `${n.y - 50}px`;
   nodesEl.appendChild(bar);
   bar.style.left = `${n.x + (el.offsetWidth - bar.offsetWidth) / 2}px`;
+}
+
+// Node nối trực tiếp từ node này / toàn bộ node phía sau (không gồm khung ghi chú).
+function childrenOf(id) {
+  return [...new Set(wf.edges.filter((e) => e.from.node === id).map((e) => e.to.node))].filter((x) => wf.nodes.some((n) => n.id === x && n.type !== 'note'));
+}
+function descendantsOf(id) {
+  const out = new Set(), stack = childrenOf(id);
+  while (stack.length) { const x = stack.pop(); if (out.has(x)) continue; out.add(x); stack.push(...childrenOf(x)); }
+  return [...out];
+}
+function runFrom(id, all) {
+  const ids = all ? descendantsOf(id) : childrenOf(id);
+  if (!ids.length) { toast('Chưa có node nào nối từ node này'); return; }
+  runWorkflow(ids);
 }
 
 // Kết quả ảnh/video đang hiển thị của node (lượt đang chạy hoặc lần chạy đã lưu).
@@ -656,6 +674,23 @@ function addNode(type, x, y, data) {
 
 // "Sửa ảnh": chụp đúng ảnh đang xem thành node Ảnh riêng, nối sang node AI mới cùng loại + ô yêu cầu sửa.
 // Node cũ không có dây ra node mới nên không bị chạy lại hay thay kết quả.
+// "Sửa ảnh" ngay trong node: thêm Prompt nối vào cổng "Prompt sửa kết quả" của node.
+// Bấm ▶ trên Prompt đó: node dùng ảnh đang có làm tham chiếu + nội dung sửa, kết quả mới hiện ở chính node này.
+function editInPlace(src) {
+  if (!portsOf(src, 'in').some((p) => p.name === 'edit')) { editResult(src); return; }
+  pushHistory();
+  const count = wf.edges.filter((e) => e.to.node === src.id && e.to.port === 'edit').length;
+  const ask = placeNode('prompt', src.x - 380, src.y + 140 + count * 300, { name: `Sửa ${src.data.name || NODE_DEFS[src.type].title} #${count + 1}`, text: '' });
+  wf.edges.push({ id: nid(), from: { node: ask.id, port: 'text' }, to: { node: src.id, port: 'edit' } });
+  renderAll();
+  select([ask.id]);
+  dirty();
+  const ta = nodeEl(ask.id)?.querySelector('textarea[data-k="text"]');
+  const vid = src.type === 'seedance' || src.data.genType === 'video';
+  if (ta) { ta.placeholder = vid ? 'Gõ nội dung sửa video, vd: camera quay chậm hơn, thêm mưa, nhân vật mỉm cười. Rồi bấm ▶ trên node này.' : 'Gõ nội dung sửa, vd: đổi chàng trai thành cô gái, giữ nguyên bối cảnh. Rồi bấm ▶ trên node này.'; ta.focus(); }
+  toast('Gõ nội dung sửa rồi bấm ▶ trên node Prompt này: ảnh được sửa ngay trong node, không chạy lại từ đầu');
+}
+
 function editResult(src) {
   const res = statusOf(src)?.preview ? statusOf(src) : wf.results?.[src.id];
   const media = (res?.preview || []).filter((p) => p.kind === 'image');
@@ -741,6 +776,7 @@ function connect(from, to) {
   }
   renderEdges();
   refreshPeeks();
+  if (to.port === 'edit') toast('Bấm ▶ trên node Prompt này để sửa ảnh đang có của node, không chạy lại từ đầu');
   dirty();
   return true;
 }
@@ -1032,6 +1068,8 @@ nodesEl.addEventListener('click', (e) => {
     const id = [...selection][0];
     const act = bar.dataset.bar;
     if (act === 'run') runWorkflow([id]);
+    if (act === 'run-next') runFrom(id, false);
+    if (act === 'run-branch') runFrom(id, true);
     if (act === 'reset') { clearNodeResult(id); toast('Đã xoá kết quả của node'); }
     if (act === 'download') downloadAll(wf.nodes.find((x) => x.id === id));
     if (act === 'copy-prompt') navigator.clipboard.writeText(promptOf(wf.nodes.find((x) => x.id === id))).then(() => toast('Đã copy prompt'), () => toast('Không copy được'));
@@ -1083,6 +1121,7 @@ nodesEl.addEventListener('click', (e) => {
   }
   if (act === 'li-add-media') openFilePicker(id);
   if (act === 'edit-result') editResult(n);
+  if (act === 'edit-inplace') editInPlace(n);
   if (act === 'rename') startRename(id);
   if (act === 'edit-slug') { openSide(id, 'config'); slugMode = true; openSide(id, 'config'); side.querySelector('[data-d=slug]')?.focus(); }
 });
@@ -1310,7 +1349,7 @@ canvas.addEventListener('contextmenu', (e) => {
   if (nodeDiv && !selection.has(nodeDiv.dataset.node)) select([nodeDiv.dataset.node]);
   const menu = document.createElement('div');
   menu.className = 'menu';
-  const nodeItems = nodeDiv ? `<button data-m="run-sel">${I.play}Chạy node đã chọn</button><button data-m="config">${I.gear}Cấu hình node</button><button data-m="dup">${I.copy}Nhân bản (Ctrl+D)</button><button data-m="copy">${I.copy}Sao chép (Ctrl+C)</button><button data-m="del">${I.trash}Xoá (Delete)</button><div class="sep"></div>` : '';
+  const nodeItems = nodeDiv ? `<button data-m="run-sel">${I.play}Chạy node đã chọn</button>${childrenOf(nodeDiv.dataset.node).length ? `<button data-m="run-next">${I.play}Chạy các node nối từ đây (${childrenOf(nodeDiv.dataset.node).length})</button><button data-m="run-branch">⏩ Chạy tiếp cả nhánh phía sau</button>` : ''}<button data-m="config">${I.gear}Cấu hình node</button><button data-m="dup">${I.copy}Nhân bản (Ctrl+D)</button><button data-m="copy">${I.copy}Sao chép (Ctrl+C)</button><button data-m="del">${I.trash}Xoá (Delete)</button><div class="sep"></div>` : '';
   menu.innerHTML = `${nodeItems}
     <button data-m="add">${I.plus}Thêm node (N)</button>
     <button data-m="paste">${I.paste}Dán ảnh (Ctrl+V)</button>
@@ -1335,6 +1374,8 @@ canvas.addEventListener('contextmenu', (e) => {
     closeMenus();
     ({
       'run-sel': () => runWorkflow([...selection]),
+      'run-next': () => runFrom(nodeDiv.dataset.node, false),
+      'run-branch': () => runFrom(nodeDiv.dataset.node, true),
       config: () => openSide([...selection][0]),
       dup: () => duplicate([...selection]),
       copy: copySelection,
@@ -1619,7 +1660,7 @@ side.addEventListener('click', (e) => {
   if (act === 'close') closeSide();
   if (act === 'delete') { select([n.id]); deleteSelection(); }
   if (act === 'power') { draft.enabled = !draft.enabled; setData(n.id, { enabled: draft.enabled }); openSide(n.id, sideTab); }
-  if (act === 'run') runWorkflow([n.id]);
+  if (act === 'run') { if (n.type === 'image') runFrom(n.id, false); else runWorkflow([n.id]); }
   if (act === 'clear') { clearNodeResult(n.id); openSide(n.id, sideTab); }
   if (act === 'download-all') downloadAll(n);
   if (act === 'reset') {
@@ -1734,6 +1775,7 @@ function renderRunProgress() {
   el.innerHTML = `${done} / ${nodes.length}<i><b style="width:${Math.round((done / Math.max(1, nodes.length)) * 100)}%"></b></i>`;
 }
 const listSynced = new Map(); // nodeId -> finishedAt đã nhận
+const seenDone = new Map(); // nodeId -> finishedAt đã hiển thị (về trang 01 khi có kết quả mới)
 // initial: trạng thái của lần chạy cũ khi vừa mở trình soạn; side panel đã lưu các mục List
 // vào workflow, nên không ghi đè các mục người dùng sửa sau đó.
 function applyRunState(state, initial = false) {
@@ -1745,6 +1787,7 @@ function applyRunState(state, initial = false) {
     const el = nodeEl(n.id);
     if (!el) continue;
     const st = state.nodes[n.id];
+    if (st?.status === 'done' && st.finishedAt && seenDone.get(n.id) !== st.finishedAt) { seenDone.set(n.id, st.finishedAt); pages.delete(n.id); }
     // List nhận các mục vừa chạy ra (lưu vào node để sửa tay và chạy tiếp).
     if (n.type === 'list' && st?.status === 'done' && st.listItems && listSynced.get(n.id) !== st.finishedAt) {
       listSynced.set(n.id, st.finishedAt);
