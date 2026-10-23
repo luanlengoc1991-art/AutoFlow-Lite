@@ -226,7 +226,8 @@ export class WorkflowRunner {
   // Tạo ảnh/video gốc từ prompt + ảnh tham chiếu nối vào node.
   async generateMedia(node, inputs, ctx, texts, isVideo, opts = {}) {
     const d = node.data;
-    const own = this.resolveMentions(d.prompt, ctx);
+    // Tắt "Sử dụng Prompt riêng" (khung soạn dưới node): chỉ dùng prompt từ node phía trước.
+    const own = d.useOwnPrompt === false ? '' : this.resolveMentions(d.prompt, ctx);
     texts = this.pickTexts((inputs.text || []).filter((i) => i.kind === 'text'), d.prompt, d.promptMode || 'auto', ctx).map((i) => i.text);
     let prompts = opts.rawPrompt ? [opts.rawPrompt]
       : texts.length ? texts.map((t) => (own ? (own.includes('{input}') ? own.replaceAll('{input}', t) : `${own} ${t}`) : t)) : own ? [own] : [];

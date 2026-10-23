@@ -115,6 +115,8 @@ let selfWrite = false;
 // ---------- View ----------
 function applyView() {
   world.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`;
+  const cp = nodesEl.querySelector('.composer');
+  if (cp) cp.style.transform = `scale(${1 / view.zoom})`;
   const g = 22 * view.zoom;
   canvas.style.backgroundSize = `${g}px ${g}px`;
   canvas.style.backgroundPosition = `${view.x}px ${view.y}px`;
@@ -597,6 +599,7 @@ function select(ids, additive = false) {
 }
 function renderBar() {
   nodesEl.querySelector('.node-bar')?.remove();
+  renderComposer();
   if (selection.size !== 1) return;
   const id = [...selection][0];
   const n = wf.nodes.find((x) => x.id === id);
@@ -622,6 +625,74 @@ function renderBar() {
   bar.style.top = `${n.y - 50}px`;
   nodesEl.appendChild(bar);
   bar.style.left = `${n.x + (el.offsetWidth - bar.offsetWidth) / 2}px`;
+}
+
+// Khung soạn prompt nổi dưới node tạo ảnh/video đang chọn: ảnh tham chiếu, prompt riêng, model, tỷ lệ, gửi (chạy node).
+// Giữ cỡ cố định trên màn hình (scale ngược với zoom).
+const COMPOSER_TYPES = new Set(['generate', 'seedance', 'chatgpt', 'gemini', 'grok']);
+function renderComposer() {
+  nodesEl.querySelector('.composer')?.remove();
+  if (selection.size !== 1) return;
+  const id = [...selection][0];
+  const n = wf.nodes.find((x) => x.id === id);
+  const el = nodeEl(id);
+  if (!n || !el || !COMPOSER_TYPES.has(n.type)) return;
+  const d = n.data, chat = ['chatgpt', 'gemini', 'grok'].includes(n.type);
+  const kind = n.type === 'generate' ? (d.genType === 'video' ? 'video' : 'image') : (d.mode === 'video' ? 'video' : 'image');
+  const models = n.type === 'generate' ? [['', 'Model Flow'], ...optionsFor(kind).map((m) => [m, m])]
+    : n.type === 'grok' ? [['', 'Chất lượng'], ['fast', 'Speed'], ['quality', 'Quality']]
+    : n.type === 'seedance' ? [['', 'Model'], ...SEEDANCE_MODELS.map((m) => [m, m])]
+    : [['', 'Model'], ...(CHAT_MODELS[n.type] || []).map((m) => [m.value, m.label])];
+  const modelKey = n.type === 'grok' ? 'quality' : 'model';
+  const ratios = n.type === 'generate' ? RATIOS[kind] : n.type === 'seedance' ? SEEDANCE_RATIOS : (CHAT_RATIOS[n.type] || []).map((r) => r[0]);
+  const glyph = (r) => { const [w, h] = r.split(':').map(Number); return w === h ? '□' : w > h ? '▭' : '▯'; };
+  const own = d.useOwnPrompt !== false;
+  const c = document.createElement('div');
+  c.className = 'composer';
+  c.dataset.composer = id;
+  c.innerHTML = `${chat ? `<div class="cp-refs">${(d.refs || []).map((r, i) => `<span class="cp-ref"><img src="${r.dataUrl}" alt=""><button data-cp="rmref" data-i="${i}">✕</button></span>`).join('')}${(d.refs || []).length < 4 ? `<button class="cp-add" data-cp="ref-add" title="Thêm ảnh tham chiếu (tối đa 4)">${I.image}</button>` : ''}</div>` : ''}
+    <textarea data-cp-k="prompt" placeholder="VD: A cute cat playing with yarn, cinematic lighting" ${own ? '' : 'disabled'}>${esc(d.prompt || '')}</textarea>
+    <div class="cp-row"><label class="cp-own"><button class="tog sm ${own ? 'on' : ''}" data-cp="own"></button>Sử dụng Prompt riêng</label><span class="spacer"></span><span class="cp-count">${(d.prompt || '').length}/${MAX_PROMPT.toLocaleString('vi')}</span></div>
+    <div class="cp-row">
+      <select data-cp-k="${modelKey}">${models.map(([v, l]) => `<option value="${esc(v)}" ${String(d[modelKey] || '') === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+      ${ratios.map((r) => `<button class="cp-ratio ${d.ratio === r ? 'on' : ''}" data-cp="ratio" data-v="${r}">${glyph(r)} ${r}</button>`).join('')}
+      <span class="spacer"></span><button class="cp-send" data-cp="run" title="Chạy node">↑</button>
+    </div>`;
+  nodesEl.appendChild(c);
+  const w = 560;
+  c.style.width = `${w}px`;
+  c.style.left = `${n.x + el.offsetWidth / 2 - w / 2}px`;
+  c.style.top = `${n.y + el.offsetHeight + 34}px`;
+  c.style.transform = `scale(${1 / view.zoom})`;
+  // Không để thao tác trong khung kéo node / đổi vùng chọn / zoom canvas.
+  for (const ev of ['mousedown', 'pointerdown', 'dblclick', 'wheel']) c.addEventListener(ev, (e) => e.stopPropagation());
+  let timer = null;
+  c.addEventListener('input', (e) => {
+    if (e.target.dataset.cpK !== 'prompt') return;
+    c.querySelector('.cp-count').textContent = `${e.target.value.length}/${MAX_PROMPT.toLocaleString('vi')}`;
+    clearTimeout(timer);
+    timer = setTimeout(() => setData(id, { prompt: e.target.value }, { history: false }), 300);
+  });
+  c.addEventListener('change', (e) => { const k = e.target.dataset.cpK; if (k && k !== 'prompt') { setData(id, { [k]: e.target.value }); renderComposer(); } });
+  c.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-cp]');
+    if (!b) return;
+    const act = b.dataset.cp;
+    if (act === 'own') { setData(id, { useOwnPrompt: !own }); renderComposer(); }
+    if (act === 'ratio') { setData(id, { ratio: d.ratio === b.dataset.v ? '' : b.dataset.v }); renderComposer(); }
+    if (act === 'rmref') { setData(id, { refs: (d.refs || []).filter((_, i) => i !== +b.dataset.i) }); renderComposer(); }
+    if (act === 'run') { clearTimeout(timer); const ta = c.querySelector('[data-cp-k=prompt]'); if (ta) setData(id, { prompt: ta.value }, { history: false }); runWorkflow([id]); }
+    if (act === 'ref-add') {
+      const input = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*', multiple: true });
+      input.addEventListener('change', async () => {
+        const refs = [...(d.refs || [])];
+        for (const f of [...input.files].slice(0, 4 - refs.length)) refs.push({ name: f.name, mime: f.type, dataUrl: await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(f); }) });
+        setData(id, { refs });
+        renderComposer();
+      });
+      input.click();
+    }
+  });
 }
 
 // Node nối trực tiếp từ node này / toàn bộ node phía sau (không gồm khung ghi chú).

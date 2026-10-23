@@ -117,6 +117,7 @@ function renderGen() {
   renderStyleChip();
   renderRefs();
   updateCounts();
+  renderRunState();
 }
 $('gen-chain').addEventListener('change', (e) => { g().chainPrev = e.target.checked; saveGen(); renderGen(); });
 $('gen-chainmode').addEventListener('change', (e) => { g().chainMode = e.target.value; saveGen(); });
@@ -572,7 +573,7 @@ function renderRunState() {
   banner.className = `banner ${runner.level === 'error' ? '' : 'warn'}`;
   const gen = $('btn-generate');
   gen.classList.toggle('running', runner.running);
-  gen.querySelector('span').textContent = runner.running ? (runner.paused ? 'Đang tạm dừng · Thêm vào hàng đợi' : 'Đang chạy · Thêm vào hàng đợi') : 'Generate';
+  gen.querySelector('span').textContent = runner.running ? (runner.paused ? 'Đang tạm dừng · Thêm vào hàng đợi' : 'Đang chạy · Thêm vào hàng đợi') : (g().provider === 'flow' ? 'Tạo' : `Tạo bằng ${PROVIDERS[g().provider]?.name || ''}`);
 }
 $('run-start').addEventListener('click', () => {
   if (!store.tasks.some((t) => t.status === 'pending') && !runner.running) { toast('Không có task đang chờ'); return; }
@@ -1549,6 +1550,7 @@ async function refreshFlowStatus() {
   }
 }
 $('flow-status').addEventListener('click', () => flow.openFlow());
+$('status-ver').textContent = `AutoFlow v${chrome.runtime.getManifest().version}`;
 $('project-new').addEventListener('click', () => chrome.tabs.create({ url: 'https://flow.google.com/' }));
 $('btn-top-capture').addEventListener('click', () => { showTab('gen'); $('ref-capture').click(); });
 $('btn-top-image').addEventListener('click', (e) => $('btn-image-prompt').dispatchEvent(new MouseEvent('click', { shiftKey: e.shiftKey })));

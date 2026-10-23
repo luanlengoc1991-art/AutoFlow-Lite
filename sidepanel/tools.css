@@ -76,7 +76,7 @@ textarea { min-height: 90px; resize: vertical; line-height: 1.5; }
 .angle-list .it button { margin-left: auto; background: transparent; border: 0; color: var(--muted); }
 
 /* Bảng màu kiểu TobyFlow */
-:root { --bg: #1e1e1e; --panel: #161616; --card: #1c1c1f; --line: rgba(255,255,255,.08); --text: #e8e8ea; --muted: #8b8b92; --accent: #ccff00; --ink: #1e1e1e; }
+:root { --bg: #1c1c1f; --panel: #252529; --card: #252529; --line: rgba(255,255,255,.08); --text: #e8e8ea; --muted: #8b8b92; --accent: #ccff00; --ink: #1e1e1e; }
 body { font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif; }
 input, select, textarea { background: #181818; border-color: rgba(255,255,255,.08); }
 select { border-radius: 20px; }
