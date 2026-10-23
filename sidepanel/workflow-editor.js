@@ -252,6 +252,11 @@ function loadMediaInfo(root) {
   });
 }
 
+function peekHtml(n) {
+  const p = promptOf(n);
+  return `<div class="prompt-peek ${p ? '' : 'empty'}" data-for="${n.id}" title="${esc(p)}">${esc(p || 'Chưa có prompt: nối node Prompt hoặc nhập trong ⚙')}</div>`;
+}
+
 function bodyHtml(n) {
   const d = n.data;
   switch (n.type) {
@@ -262,7 +267,8 @@ function bodyHtml(n) {
       return `<div class="nb-text"><textarea data-k="text" placeholder="Nhập prompt..." maxlength="${MAX_PROMPT}">${esc(d.text)}</textarea></div>
         ${aiText ? `<div class="ai-out"><span>✦ AI OUTPUT · ${esc(PROVIDER_LABEL[d.agentProvider])}</span><div>${esc(aiText.slice(0, 600))}</div></div>` : ''}
         <div class="chips">
-          <span class="foot-mode" title="${d.agent ? 'AI Agent đang bật' : 'Văn bản nguyên văn, không gọi AI'}">${d.agent ? `AI · ${esc(PROVIDER_LABEL[d.agentProvider])}` : 'Plain'}${d.multi ? ' · Multi-prompt' : ''}</span>
+          <span class="chip toggle ${d.multi ? 'on' : ''}" data-toggle="multi" title="Mỗi dòng là 1 prompt riêng">Multi-prompt</span>
+          <span class="foot-mode" title="${d.agent ? 'AI Agent đang bật' : 'Văn bản nguyên văn, không gọi AI'}">${d.agent ? `AI · ${esc(PROVIDER_LABEL[d.agentProvider])}` : 'Plain'}</span>
           <span class="counter">${d.text.length}/${MAX_PROMPT.toLocaleString('vi')}</span>
           <span class="chip gear" data-act="config" title="Cấu hình">${I.gear}</span>
         </div>`;
@@ -292,13 +298,16 @@ function bodyHtml(n) {
         chipSelect('model', d.model, [['', 'Model Flow'], ...optionsFor(kind)], 'Model'),
         chipSelect('ratio', d.ratio, [['', 'Tỉ lệ'], ...RATIOS[kind]], 'Tỉ lệ')
       ];
-      if (kind === 'video') chips.push(chipSelect('videoMode', d.videoMode, [['frames', 'Frames'], ['ingredients', 'Ingredients'], ['text', 'Text']], 'Kiểu video'));
+      if (kind === 'video') {
+        chips.push(chipSelect('videoMode', d.videoMode, [['frames', 'Frames'], ['ingredients', 'Ingredients'], ['text', 'Text']], 'Kiểu video'));
+        chips.push(chipSelect('duration', d.duration, [['', 'Thời lượng'], '4s', '6s', '8s'], 'Thời lượng'));
+      }
       return `<div class="nb-media ${ratioClass(d.ratio || (kind === 'video' ? '9:16' : '9:16'))}">
           <button class="corner-run" data-act="run-node" title="Chạy node">${I.play}</button>
           <button class="tog sm corner-tog ${d.enabled ? 'on' : ''}" data-act="toggle-enabled" title="Bật/tắt node"></button>
           ${previewHtml(n)}
         </div>
-        <div class="chips">${chips.join('')}<span class="chip gear" data-act="config">${I.gear}</span></div>`;
+        ${peekHtml(n)}<div class="chips">${chips.join('')}<span class="chip gear" data-act="config">${I.gear}</span></div>`;
     }
     case 'assistant': {
       const res = statusOf(n) || (runReset ? null : wf.results?.[n.id]);
@@ -322,7 +331,7 @@ function bodyHtml(n) {
           <button class="tog sm corner-tog ${d.enabled ? 'on' : ''}" data-act="toggle-enabled" title="Bật/tắt node"></button>
           ${previewHtml(n)}
         </div>
-        <div class="chips">${chips.join('')}<span class="chip gear" data-act="config">${I.gear}</span></div>`;
+        ${peekHtml(n)}<div class="chips">${chips.join('')}<span class="chip gear" data-act="config">${I.gear}</span></div>`;
     }
     case 'chatgpt':
     case 'gemini':
@@ -332,7 +341,7 @@ function bodyHtml(n) {
           <button class="tog sm corner-tog ${d.enabled ? 'on' : ''}" data-act="toggle-enabled" title="Bật/tắt node"></button>
           ${previewHtml(n)}
         </div>
-        <div class="chips"><span class="chip">Image</span><span class="chip toggle ${d.newChat !== false ? 'on' : ''}" data-toggle="newChat">Chat mới</span><span class="chip gear" data-act="config">${I.gear}</span></div>`;
+        ${peekHtml(n)}<div class="chips"><span class="chip">Image</span><span class="chip toggle ${d.newChat !== false ? 'on' : ''}" data-toggle="newChat">Chat mới</span><span class="chip gear" data-act="config">${I.gear}</span></div>`;
     case 'download':
       return `<div class="nb-small">${I.download} Thư mục: <b>${esc(d.folder || '(theo workflow)')}</b><span class="chip gear" data-act="config">${I.gear}</span></div>`;
     case 'delay':
@@ -398,10 +407,10 @@ function buildNode(n) {
     const hasMedia = n.type === 'generate' || n.type === 'image' || def.provider;
     // Phóng to node media: 1× → 1.5× → 2×.
     if (hasMedia && n.data.nodeZoom > 1) el.style.width = `${300 * n.data.nodeZoom}px`;
-    el.innerHTML = `<div class="label">${icon}<span>${esc(n.data.name || def.title)}</span></div>
+    el.innerHTML = `<div class="label">${icon}<span>${esc(n.data.name || def.title)}</span><button class="rename-btn" data-act="rename" title="Đổi tên">✎</button></div>
       <div class="card">${bodyHtml(n)}</div>
       <div class="under">${def.provider ? `<span class="provider-pill"><i style="background:${PROVIDER_COLOR[def.provider]}"></i>${esc(PROVIDER_LABEL[def.provider])}</span>` : ''}
-        ${n.data.slug ? `<span class="slug-badge" title="Dùng @${esc(n.data.slug)} ở node khác">@${esc(n.data.slug)}</span>` : ''}</div>
+        ${n.data.slug ? `<span class="slug-badge" data-act="edit-slug" title="Dùng @${esc(n.data.slug)} ở node khác · bấm để sửa">@${esc(n.data.slug)}</span>` : ''}</div>
       ${hasMedia ? `<button class="zoom-node" data-act="zoom-node" title="Phóng to node (1× → 1.5× → 2×)">${n.data.nodeZoom > 1 ? `<span style="font-size:9px">${n.data.nodeZoom}×</span>` : I.fit}</button>` : ''}
       ${portsHtml(n)}`;
   }
@@ -568,12 +577,60 @@ function renderBar() {
   if (!n || !el || n.type === 'note') return;
   const bar = document.createElement('div');
   bar.className = 'node-bar';
-  bar.innerHTML = `<button data-bar="run" title="Chạy node">${I.play}</button><button data-bar="config" title="Cấu hình">${I.gear}</button>
-    <button data-bar="branch" title="Tạo nhánh (nhân bản giữ kết nối đầu vào)">${I.branch}</button><button data-bar="dup" title="Nhân bản (Ctrl+D)">${I.copy}</button>
+  // Node Ảnh/Video chỉ chứa media tải lên nên không cần nút Chạy.
+  const runnable = n.type !== 'image';
+  const hasMedia = mediaResults(n).length > 0;
+  const prompt = promptOf(n);
+  bar.innerHTML = `${runnable ? `<button data-bar="run" title="Chạy node">${I.play}</button>` : ''}
+    <button data-bar="reset" title="Reset node (xoá kết quả, giữ cấu hình)">${I.refresh}</button>
+    ${hasMedia ? `<button data-bar="download" title="Tải kết quả của node">${I.download.replace(/13/g, '15')}</button>` : ''}
+    <button data-bar="config" title="Cấu hình">${I.gear}</button>
+    <button data-bar="branch" title="Tạo nhánh (nhân bản giữ kết nối đầu vào)">${I.branch}</button>
+    ${prompt ? `<button data-bar="copy-prompt" title="Copy prompt">${I.prompt.replace(/13/g, '15')}</button>` : ''}
+    <button data-bar="dup" title="Nhân bản (Ctrl+D)">${I.copy}</button>
     <button data-bar="del" class="danger" title="Xoá (Delete)">${I.trash}</button>`;
-  bar.style.left = `${n.x + (el.offsetWidth - 176) / 2}px`;
   bar.style.top = `${n.y - 50}px`;
   nodesEl.appendChild(bar);
+  bar.style.left = `${n.x + (el.offsetWidth - bar.offsetWidth) / 2}px`;
+}
+
+// Kết quả ảnh/video đang hiển thị của node (lượt đang chạy hoặc lần chạy đã lưu).
+function mediaResults(n) {
+  const res = statusOf(n)?.preview ? statusOf(n) : runReset ? null : wf.results?.[n.id];
+  return (res?.preview || []).filter((p) => p.kind !== 'text');
+}
+// Prompt của node: nội dung tự gõ + văn bản từ node Prompt/Text nối vào (AI Agent thì chưa biết trước).
+function promptOf(n) {
+  if (!n) return '';
+  const d = n.data;
+  if (['prompt', 'text', 'assistant'].includes(n.type)) return String(d.text || '').trim();
+  if (!['generate', 'seedance', 'chatgpt', 'gemini', 'grok'].includes(n.type)) return '';
+  const ups = wf.edges.filter((e) => e.to.node === n.id && e.to.port === 'text').map((e) => wf.nodes.find((x) => x.id === e.from.node)).filter(Boolean)
+    .map((src) => (src.type === 'prompt' && src.data.agent ? `(${PROVIDER_LABEL[src.data.agentProvider] || 'AI'} viết từ "${src.data.name}")` : String(src.data.text || src.data.name || '').trim()))
+    .filter(Boolean);
+  const own = String(d.prompt || '').trim();
+  if (!ups.length) return own;
+  return own ? (own.includes('{input}') ? ups.map((u) => own.replaceAll('{input}', u)).join('\n\n') : ups.map((u) => `${own} ${u}`).join('\n\n')) : ups.join('\n\n');
+}
+function clearNodeResult(id) {
+  if (runState?.nodes?.[id]) delete runState.nodes[id];
+  if (wf.results?.[id]) delete wf.results[id];
+  pages.delete(id);
+  rerenderNode(id);
+  dirty();
+}
+async function downloadAll(n) {
+  const count = mediaResults(n).length;
+  for (let i = 0; i < count; i++) await downloadResult(n, i);
+}
+// Cập nhật đoạn prompt hiển thị trên node tạo ảnh/video khi prompt nguồn thay đổi.
+function refreshPeeks() {
+  nodesEl.querySelectorAll('.prompt-peek[data-for]').forEach((el) => {
+    const p = promptOf(wf.nodes.find((x) => x.id === el.dataset.for));
+    el.textContent = p || 'Chưa có prompt: nối node Prompt hoặc nhập trong ⚙';
+    el.title = p;
+    el.classList.toggle('empty', !p);
+  });
 }
 
 // ---------- Thao tác dữ liệu ----------
@@ -683,6 +740,7 @@ function connect(from, to) {
     rerenderNode(b.id);
   }
   renderEdges();
+  refreshPeeks();
   dirty();
   return true;
 }
@@ -879,6 +937,25 @@ canvas.addEventListener('wheel', (e) => {
   dirtyView();
 }, { passive: false });
 
+// Rê chuột lên dây: hiện node nguồn, cổng ra → cổng vào, node đích.
+const edgeTip = document.createElement('div');
+edgeTip.className = 'edge-tip';
+edgeTip.hidden = true;
+document.body.appendChild(edgeTip);
+canvas.addEventListener('mousemove', (e) => {
+  const hit = !drag && e.target.closest?.('[data-edge]');
+  const edge = hit && wf.edges.find((x) => x.id === hit.dataset.edge);
+  if (!edge) { edgeTip.hidden = true; return; }
+  const a = wf.nodes.find((n) => n.id === edge.from.node), b = wf.nodes.find((n) => n.id === edge.to.node);
+  const pa = a && portsOf(a, 'out').find((p) => p.name === edge.from.port), pb = b && portsOf(b, 'in').find((p) => p.name === edge.to.port);
+  if (!pa || !pb) { edgeTip.hidden = true; return; }
+  edgeTip.innerHTML = `<b>${esc(a.data.name || NODE_DEFS[a.type].title)}</b><div><span>${esc(pa.label)}</span> → <span>${esc(pb.label)}</span></div><b>${esc(b.data.name || NODE_DEFS[b.type].title)}</b>`;
+  edgeTip.style.left = `${e.clientX + 14}px`;
+  edgeTip.style.top = `${e.clientY + 14}px`;
+  edgeTip.hidden = false;
+});
+canvas.addEventListener('mouseleave', () => { edgeTip.hidden = true; });
+
 // Đổi tên node ngay trên tiêu đề (nhấp đúp).
 function startRename(id) {
   const n = wf.nodes.find((x) => x.id === id);
@@ -929,6 +1006,7 @@ nodesEl.addEventListener('input', (e) => {
   n.data[k] = e.target.type === 'number' ? +e.target.value : e.target.value;
   const counter = nodeEl(id).querySelector('.counter');
   if (counter) counter.textContent = `${n.data[k].length}/${MAX_PROMPT.toLocaleString('vi')}`;
+  if (k === 'text' || k === 'prompt') refreshPeeks();
   dirty();
 });
 nodesEl.addEventListener('change', (e) => {
@@ -954,6 +1032,9 @@ nodesEl.addEventListener('click', (e) => {
     const id = [...selection][0];
     const act = bar.dataset.bar;
     if (act === 'run') runWorkflow([id]);
+    if (act === 'reset') { clearNodeResult(id); toast('Đã xoá kết quả của node'); }
+    if (act === 'download') downloadAll(wf.nodes.find((x) => x.id === id));
+    if (act === 'copy-prompt') navigator.clipboard.writeText(promptOf(wf.nodes.find((x) => x.id === id))).then(() => toast('Đã copy prompt'), () => toast('Không copy được'));
     if (act === 'config') openSide(id);
     if (act === 'branch') duplicate([id], { keepInputs: true, offset: 60 });
     if (act === 'dup') duplicate([id]);
@@ -1002,6 +1083,8 @@ nodesEl.addEventListener('click', (e) => {
   }
   if (act === 'li-add-media') openFilePicker(id);
   if (act === 'edit-result') editResult(n);
+  if (act === 'rename') startRename(id);
+  if (act === 'edit-slug') { openSide(id, 'config'); slugMode = true; openSide(id, 'config'); side.querySelector('[data-d=slug]')?.focus(); }
 });
 
 // Kéo thả file vào node Image/Video hoặc canvas.
@@ -1480,11 +1563,13 @@ function openSide(id, tab = 'config') {
   sideTab = tab;
   select([id]);
   side.hidden = false;
-  side.innerHTML = `<div class="side-head">
+  side.style.width = `${sideWidth()}px`;
+  side.innerHTML = `<div class="side-resize" title="Kéo để đổi độ rộng"></div><div class="side-head">
       <div class="tabs"><button data-tab="config" class="${tab === 'config' ? 'active' : ''}">Cấu hình</button><button data-tab="result" class="${tab === 'result' ? 'active' : ''}">Kết quả</button></div>
       <button class="icon-btn" title="${esc(NODE_DEFS[n.type].desc)}">${I.help}</button><span class="spacer"></span>
       ${n.type !== 'note' ? `<button class="icon-btn" data-side="run" title="Chạy node" style="color:#22c55e">${I.play}</button>
-      <button class="icon-btn" data-side="clear" title="Xoá kết quả node" style="color:#f59e0b">${I.refresh}</button>` : ''}
+      <button class="icon-btn" data-side="clear" title="Reset node (xoá kết quả)" style="color:#f59e0b">${I.refresh}</button>` : ''}
+      ${mediaResults(n).length ? `<button class="icon-btn" data-side="download-all" title="Tải kết quả của node" style="color:var(--accent)">${I.download.replace(/13/g, '15')}</button>` : ''}
       ${n.type !== 'note' ? `<button class="icon-btn" data-side="power" title="${draft.enabled ? 'Tắt node' : 'Bật node'}" style="color:${draft.enabled ? 'var(--accent)' : 'var(--muted)'}">${I.power}</button>` : ''}
       <button class="icon-btn" data-side="delete" title="Xoá node" style="color:var(--danger)">${I.trash}</button>
       <button class="icon-btn" data-side="close" title="Đóng">${I.x}</button></div>
@@ -1535,13 +1620,8 @@ side.addEventListener('click', (e) => {
   if (act === 'delete') { select([n.id]); deleteSelection(); }
   if (act === 'power') { draft.enabled = !draft.enabled; setData(n.id, { enabled: draft.enabled }); openSide(n.id, sideTab); }
   if (act === 'run') runWorkflow([n.id]);
-  if (act === 'clear') {
-    if (runState?.nodes?.[n.id]) delete runState.nodes[n.id];
-    if (wf.results?.[n.id]) delete wf.results[n.id];
-    rerenderNode(n.id);
-    dirty();
-    openSide(n.id, sideTab);
-  }
+  if (act === 'clear') { clearNodeResult(n.id); openSide(n.id, sideTab); }
+  if (act === 'download-all') downloadAll(n);
   if (act === 'reset') {
     const keep = { name: draft.name, slug: draft.slug, enabled: draft.enabled };
     draft = { ...structuredClone(NODE_DEFS[n.type].data), ...keep };
@@ -1560,6 +1640,26 @@ side.addEventListener('click', (e) => {
     toast('Đã lưu node');
     closeSide();
   }
+});
+
+// Độ rộng bảng chi tiết: kéo cạnh trái để đổi, nhớ cho lần sau.
+function sideWidth() {
+  let w = 380;
+  try { w = +localStorage.getItem('aflSideW') || 380; } catch (_) { /* mặc định */ }
+  return Math.min(Math.max(320, w), Math.max(320, innerWidth - 120));
+}
+side.addEventListener('mousedown', (e) => {
+  if (!e.target.closest('.side-resize')) return;
+  e.preventDefault();
+  const startX = e.clientX, startW = side.offsetWidth;
+  const move = (ev) => { side.style.width = `${Math.min(Math.max(320, startW + startX - ev.clientX), innerWidth - 120)}px`; };
+  const up = () => {
+    window.removeEventListener('mousemove', move);
+    window.removeEventListener('mouseup', up);
+    try { localStorage.setItem('aflSideW', String(side.offsetWidth)); } catch (_) { /* không lưu được */ }
+  };
+  window.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', up);
 });
 
 // Tải 1 kết quả về máy (bản gốc; ảnh cần đăng nhập thì dùng bản đã đọc qua tab của provider).

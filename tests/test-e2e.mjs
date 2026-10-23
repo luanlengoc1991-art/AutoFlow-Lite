@@ -487,6 +487,16 @@ try {
     document.querySelector('#side [data-tab=result]').click();await new Promise(x=>setTimeout(x,1500));
     const s=document.getElementById('side');return {opened,kv:[...s.querySelectorAll('.kv span')].map(x=>x.textContent),prompts:s.querySelectorAll('.field .t').length,items:s.querySelectorAll('.res-item').length,dims:s.querySelector('.res-item .dims')?.textContent}})()`);
   check('bấm 1 lần vào node mở bảng chi tiết; tab Kết quả có AI/model/thời gian/prompt/ảnh gốc', sideInfo.opened && ['Trạng thái', 'Thời gian chạy', 'AI', 'Model', 'Tỉ lệ'].every((k) => sideInfo.kv.includes(k)) && sideInfo.prompts >= 1 && sideInfo.items >= 1 && sideInfo.dims === '400 × 300', sideInfo);
+  // Thanh nổi theo loại node, prompt hiện trên node video, chú thích khi rê dây, nút Tải trong bảng chi tiết.
+  const ui = await adEd.ev(`(async()=>{const bar=(id)=>{const el=document.querySelector('.node[data-node="'+id+'"] .card');el.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0}));window.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));return [...document.querySelectorAll('.node-bar [data-bar]')].map(b=>b.dataset.bar)};
+    const g1=bar('g1'); const sideDl=!!document.querySelector('#side [data-side=download-all]'); const product=bar('product');
+    const peek=document.querySelector('.node[data-node=v1] .prompt-peek')?.textContent;
+    const hit=document.querySelector('#edges path.hit');const r=hit.getBoundingClientRect();
+    hit.dispatchEvent(new MouseEvent('mousemove',{bubbles:true,clientX:r.left+r.width/2,clientY:r.top+r.height/2}));
+    const tip=document.querySelector('.edge-tip');
+    return {g1,product,peek,sideDl,tip:tip.hidden?'':tip.textContent}})()`);
+  check('thanh nổi có Reset/Tải/Copy prompt; node Ảnh không có Chạy; node video hiện prompt; rê dây hiện chú thích; bảng chi tiết có nút Tải',
+    ['run', 'reset', 'download', 'copy-prompt'].every((k) => ui.g1.includes(k)) && !ui.product.includes('run') && ui.peek === 'Create a 360 video of this product' && /→/.test(ui.tip) && ui.sideDl, ui);
 
   // ---- Seedance (Dreamina giả lập): List 2 ảnh → mỗi ảnh một video, đúng model / tỉ lệ / thời lượng ----
   await P(`(async()=>{
