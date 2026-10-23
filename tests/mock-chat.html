@@ -53,6 +53,8 @@
     const md = bot.querySelector('p');
     const stop = document.createElement('button');
     stop.setAttribute('aria-label', 'Stop generating');
+    // "vnui": giống bản đăng nhập tiếng Việt: nút "Ngừng", khung trả lời không có thuộc tính nhận dạng.
+    if (/vnui/i.test(text)) { stop.setAttribute('aria-label', 'Ngừng'); bot.removeAttribute('data-message-role'); }
     stop.textContent = '■';
     send.replaceWith(stop);
     let answer;

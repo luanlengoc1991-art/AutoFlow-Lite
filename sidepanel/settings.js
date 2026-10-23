@@ -2,6 +2,7 @@
 import { store, DEFAULT_SETTINGS } from './lib/store.js';
 import { checkAccount, checkAll, STATE_TEXT, connectAccount } from './lib/accounts.js';
 import { PROVIDERS } from './lib/providers.js';
+import * as flow from './lib/flow.js';
 import { FLOW_IMAGE_MODELS, FLOW_VIDEO_MODELS, FLOW_RATIOS, FLOW_DURATIONS, CHAT_MODELS, CHAT_RATIOS, SEEDANCE_MODELS, SEEDANCE_RATIOS, SEEDANCE_DURATIONS } from './lib/defaults.js';
 
 const $ = (id) => document.getElementById(id);
@@ -182,7 +183,8 @@ async function renderAccounts(refresh) {
     return `<div class="acc" data-p="${p}"><div class="av" style="background:${COLORS[p]}">${esc(PROVIDERS[p].name[0])}</div>
       <div class="body"><b>${esc(PROVIDERS[p].name)}</b> <span class="pill ${state === 'ready' ? 'on' : 'warn'}">${esc(STATE_TEXT[state])}</span>
         <div class="lbl">${st?.label ? `Tài khoản: ${esc(st.label)}` : state === 'ready' ? 'Đã đăng nhập' : 'Chưa kết nối'}${st?.plan ? ` · gói ${esc(st.plan)}` : ''}</div>
-        <div class="note">${esc(NOTES[p])}</div></div>
+        <div class="note">${esc(NOTES[p])}</div>
+        <button class="link" data-act="diag" title="Lưu cấu trúc trang đang mở ra file JSON để gửi hỗ trợ">🩺 Chẩn đoán (xuất file)</button></div>
       <button class="btn" data-act="connect">${state === 'ready' ? 'Mở trang' : 'Kết nối'}</button>
       <button class="btn" data-act="check">Kiểm tra</button></div>`;
   }).join('');
@@ -192,6 +194,7 @@ $('acc-list').addEventListener('click', async (e) => {
   const act = e.target.closest('[data-act]')?.dataset.act;
   if (!p || !act) return;
   if (act === 'connect') { await connectAccount(p); toast(`Đăng nhập ${PROVIDERS[p].name} trong tab vừa mở, rồi bấm Kiểm tra`); }
+  if (act === 'diag') await diagnose(p);
   if (act === 'check') {
     e.target.textContent = '…';
     accState[p] = await checkAccount(p, { open: p !== 'flow' }).catch(() => ({ provider: p, state: 'error' }));
@@ -200,6 +203,21 @@ $('acc-list').addEventListener('click', async (e) => {
   }
 });
 $('check-all').addEventListener('click', () => renderAccounts(true));
+
+// Chẩn đoán đúng tab đang mở (không mở trang mới, không đổi cuộc trò chuyện), lưu JSON vào thư mục tải.
+async function diagnose(p) {
+  const tab = await flow.findTab(p);
+  if (!tab) { toast(`Chưa mở ${PROVIDERS[p].name}: bấm Kết nối / Mở trang trước`); return; }
+  try {
+    await flow.ensureContent(tab.id, p);
+    const r = await flow.send(tab.id, { type: 'afl:diagnose' });
+    if (!r?.ok) throw new Error(r?.error || 'Trang không trả lời');
+    const report = { extension: chrome.runtime.getManifest().version, ...r.report };
+    const url = `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(report, null, 2))}`;
+    const res = await chrome.runtime.sendMessage({ type: 'afl:download', url, filename: `${s.folder || 'AutoFlow'}/chan-doan-${p}-${Date.now()}.json` });
+    toast(res?.ok ? `Đã lưu file chẩn đoán ${PROVIDERS[p].name} vào thư mục Tải xuống/${s.folder || 'AutoFlow'}` : 'Không lưu được file');
+  } catch (e) { toast(`Chẩn đoán lỗi: ${e.message}`); }
+}
 $('acc-strip').addEventListener('click', () => document.querySelector('#tabs [data-tab="accounts"]').click());
 
 // ---------- MCP ----------

@@ -13,10 +13,12 @@
       // Giao diện 2026 ("octane"): textarea#mobile-composer-prompt, câu trả lời li[data-message-role="assistant"].
       // Selector của giao diện cũ giữ lại làm dự phòng.
       composer: ['#mobile-composer-prompt', 'textarea[aria-label*="ChatGPT" i]', '#prompt-textarea', 'div.ProseMirror[contenteditable="true"]', 'textarea[name="prompt-textarea"]', 'form textarea'],
-      send: ['button[aria-label="Send message"]', '[data-testid="send-button"]', '#composer-submit-button', 'button[aria-label*="Send" i]'],
-      stop: ['button[aria-label*="Stop" i]', '[data-testid="stop-button"]'],
-      // Cả lượt trả lời (ảnh tạo ra có thể nằm ngoài khối văn bản của câu trả lời).
-      response: ['li[data-message-role="assistant"]', 'article[data-turn="assistant"]', '[data-testid^="conversation-turn-"]:has([data-message-author-role="assistant"])', '[data-message-author-role="assistant"]'],
+      // Nhãn nút theo ngôn ngữ giao diện (tiếng Anh / tiếng Việt: "Gửi lời nhắc", "Ngừng").
+      send: ['button[aria-label="Send message"]', '[data-testid="send-button"]', '#composer-submit-button', 'button[aria-label*="Send" i]', 'button[aria-label*="Gửi"]'],
+      stop: ['button[aria-label*="Stop" i]', '[data-testid="stop-button"]', 'button[aria-label="Ngừng"]', 'button[aria-label*="Ngừng tạo"]', 'button[aria-label*="Dừng"]'],
+      // Cả lượt trả lời (ảnh tạo ra có thể nằm ngoài khối văn bản của câu trả lời). Chỉ dựa vào thuộc tính
+      // vì thẻ HTML khác nhau giữa bản đăng nhập và chưa đăng nhập.
+      response: ['[data-message-role="assistant"]', '[data-turn="assistant"]', '[data-testid^="conversation-turn-"]:has([data-message-author-role="assistant"])', '[data-message-author-role="assistant"]'],
       responseText: ['[data-assistant-markdown-root]', '.markdown', '[data-message-author-role="assistant"]'],
       attach: ['button[aria-label*="Attach" i]', 'button[aria-label*="Add photos" i]', 'button[aria-label*="Upload" i]', '[data-testid="composer-plus-btn"]'],
       modelPicker: ['[data-testid="model-switcher-dropdown-button"]', 'button[aria-label*="Model selector" i]', 'button[aria-label*="model" i][aria-haspopup]'],
@@ -233,7 +235,8 @@
   function pageImages() {
     return responseImages(document).filter((src) => {
       const img = [...document.querySelectorAll('img')].find((i) => (i.currentSrc || i.src) === src);
-      return img && !img.closest('nav, aside, header, form, [role="dialog"], [data-message-role="user"], [data-message-author-role="user"], [data-turn="user"]')
+      // Thanh bên ChatGPT (GPT đã ghim, dự án) không nằm trong nav/aside.
+      return img && !img.closest('nav, aside, header, form, [role="dialog"], [data-message-role="user"], [data-message-author-role="user"], [data-turn="user"], [data-app-action-sidebar-section], [data-sidebar-project-container-id], [data-sidebar-cycle-item]')
         && Math.max(img.naturalWidth, img.naturalHeight) >= 256;
     });
   }
@@ -340,7 +343,13 @@
     const results = [...videos.map((url) => ({ url, kind: 'video' })), ...images.map((url) => ({ url, kind: 'image' }))];
     const base = { progress: null, results, text };
 
-    if (!el && !results.length) return { status: now - job.startedAt > 90000 ? 'failed' : 'running', ...base, error: 'Trang chat không trả lời', category: 'error' };
+    if (!el && !results.length) {
+      // Chưa nhận ra khung trả lời: trang vẫn đang trả lời (nút Dừng) hoặc đang vẽ ảnh thì chờ tiếp,
+      // tránh báo lỗi rồi thử lại bằng cuộc trò chuyện mới trong khi câu trả lời cũ vẫn đang chạy.
+      const limit = job.wantImage ? IMAGE_WAIT_MS : 90000;
+      const failed = !streaming && now - job.startedAt > limit;
+      return { status: failed ? 'failed' : 'running', ...base, error: 'Trang chat không trả lời', category: 'error' };
+    }
     // Nút "Dừng" có thể còn hiện (hoặc selector khớp nhầm) dù ảnh đã xong: ảnh đứng yên 20s thì nhận.
     if (streaming && !(job.wantImage && results.length && stable >= 20000)) return { status: 'running', ...base };
     if (job.wantImage) {
@@ -407,8 +416,26 @@
       editables: [...document.querySelectorAll('textarea, [contenteditable="true"]')].filter(visible).map(describe),
       // Cấu trúc câu trả lời: chuỗi phần tử cha của ảnh lớn và của câu trả lời cuối (để chỉnh selector).
       images: [...document.querySelectorAll('img')].filter((i) => visible(i) && Math.max(i.naturalWidth, i.naturalHeight) >= 256).slice(-3).map((img) => ({ src: (img.currentSrc || img.src).slice(0, 120), alt: img.alt, ancestors: ancestors(img) })),
-      lastResponse: (() => { const el = responses().at(-1); return el ? { ...describe(el), text: responseText(el).slice(0, 200), ancestors: ancestors(el) } : null; })()
+      lastResponse: (() => { const el = responses().at(-1); return el ? { ...describe(el), text: responseText(el).slice(0, 200), ancestors: ancestors(el) } : null; })(),
+      thread: skeleton()
     };
+  }
+  // Khung xương vùng hội thoại: phần tử có thuộc tính data-* / role, và ảnh, kèm độ sâu (không gồm thanh bên, ô nhập).
+  function skeleton() {
+    const root = composer()?.closest('main') || document.querySelector('main') || document.body;
+    const out = [];
+    const walk = (el, depth) => {
+      if (out.length >= 300 || depth > 22 || el.matches('form, nav, aside, script, style, svg')) return;
+      const attrs = [...el.attributes].filter((a) => a.name.startsWith('data-') || ['role', 'aria-label', 'id'].includes(a.name));
+      if (attrs.length || el.tagName === 'IMG' || /^(ARTICLE|SECTION|LI|OL|UL|CANVAS|VIDEO)$/.test(el.tagName)) {
+        const leaf = !el.children.length;
+        out.push(`${'  '.repeat(Math.min(depth, 12))}${el.tagName.toLowerCase()}${attrs.map((a) => `[${a.name}${a.value ? `="${a.value.slice(0, 30)}"` : ''}]`).join('')}`
+          + (el.tagName === 'IMG' ? ` {${el.naturalWidth}x${el.naturalHeight} ${String(el.currentSrc || el.src).slice(0, 60)}}` : leaf ? ` "${norm(el.textContent).slice(0, 40)}"` : ''));
+      }
+      for (const c of el.children) walk(c, depth + 1);
+    };
+    walk(root, 0);
+    return out;
   }
   function ancestors(el) {
     const out = [];

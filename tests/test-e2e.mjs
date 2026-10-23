@@ -308,6 +308,12 @@ try {
   await sleep(5000);
   const accTxt = await stp.ev(`[...document.querySelectorAll('#acc-list .acc')].map(a=>a.querySelector('b').textContent+':'+a.querySelector('.pill').textContent)`);
   check('Cài đặt → Tài khoản AI: Flow + ChatGPT Ready, Gemini/Grok chưa mở', accTxt.includes('Google Flow:✓ Ready') && accTxt.includes('ChatGPT:✓ Ready') && accTxt.includes('Gemini:Chưa mở'), accTxt);
+  // Nút Chẩn đoán ngay trên dòng tài khoản: lưu file JSON của tab ChatGPT đang mở.
+  await stp.ev(`document.querySelector('#acc-list .acc[data-p=chatgpt] [data-act=diag]').click()`);
+  let diagFile;
+  for (let i = 0; i < 20 && !diagFile; i++) { await sleep(500); diagFile = files().find((f) => /chan-doan-chatgpt-\d+\.json$/.test(f)); }
+  const diag = diagFile ? JSON.parse(fs.readFileSync(path.join(dlDir, diagFile), 'utf8')) : null;
+  check('Tài khoản AI → Chẩn đoán: lưu file JSON của trang ChatGPT', !!diag && diag.provider === 'chatgpt' && diag.found?.composer === true && 'matched' in diag, { diagFile, found: diag?.found });
   await stp.ev(`(()=>{document.querySelector('[data-tab=general]').click();const p=document.querySelector('[data-s=project]');p.value='CuteCats';p.dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('save').click();})()`);
   await sleep(1000);
   const proj = await P(`(async()=>{const {store}=await import('./lib/store.js');return store.settings.project})()`);
