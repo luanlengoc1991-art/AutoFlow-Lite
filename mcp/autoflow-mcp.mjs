@@ -126,7 +126,7 @@ const TOOLS = [
   },
   {
     name: 'autoflow_create_workflow',
-    description: 'Dựng workflow mới. Node type: prompt, text, extract, image, generate, chatgpt, gemini, grok, download, delay. Cạnh dạng "khoá_node.cổng". Cổng: prompt/text/extract ra "text"; generate vào "text","image_ref","frame_1","frame_2","video_ref", ra "media","frame"; download vào "media".',
+    description: 'Dựng workflow mới. Node type: prompt, text, extract, assistant, list, image, generate, seedance, chatgpt, gemini, grok, download, delay. Cạnh dạng "khoá_node.cổng". Cổng: prompt/text/extract/assistant ra "text" (assistant vào "text","image_ref"; data.provider chatgpt|claude|gemini|grok, data.exportAs list|text); list vào "in", ra "items" (node sau chạy mỗi mục một lượt); generate vào "text","image_ref","frame_1","frame_2","video_ref", ra "media","frame"; seedance vào "text","frame_1","frame_2", ra "media"; download vào "media".',
     inputSchema: {
       type: 'object',
       properties: {

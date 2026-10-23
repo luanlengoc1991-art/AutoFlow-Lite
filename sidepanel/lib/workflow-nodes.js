@@ -21,12 +21,16 @@ export function canConnect(outType, inType) {
 }
 
 const isVideo = (d) => d.genType === 'video';
-export const PROVIDER_LABEL = { flow: 'Google Flow', chatgpt: 'ChatGPT', gemini: 'Gemini', grok: 'Grok' };
+export const PROVIDER_LABEL = { flow: 'Google Flow', chatgpt: 'ChatGPT', gemini: 'Gemini', grok: 'Grok', claude: 'Claude', seedance: 'Seedance' };
+// AI viết văn bản cho node Assistant / AI Agent.
+export const TEXT_AI = ['chatgpt', 'claude', 'gemini', 'grok'];
+// Kiểu cổng ra của List theo loại mục đang chứa.
+const listType = (d) => ({ text: 'text', image: 'image', video: 'video' })[d.kind] || 'any';
 
 export const NODE_DEFS = {
   prompt: {
     title: 'Prompt', icon: 'prompt', group: 'Văn bản',
-    desc: 'Prompt văn bản. Bật AI Agent để ChatGPT/Gemini/Grok viết lại, mở rộng, dịch, phân tích ảnh.',
+    desc: 'Prompt văn bản. Bật AI Agent để ChatGPT/Claude/Gemini/Grok viết lại, mở rộng, dịch, phân tích ảnh.',
     ins: [
       { name: 'text', type: 'text', multi: true, label: 'Prompt đầu vào' },
       { name: 'image_ref', type: 'image', multi: true, label: 'Ảnh cho AI phân tích', when: (d) => d.agent }
@@ -47,6 +51,23 @@ export const NODE_DEFS = {
     ins: [{ name: 'text', type: 'text', multi: false, label: 'Văn bản đầu vào' }],
     outs: [{ name: 'text', type: 'text', label: 'Văn bản đã tách' }],
     data: { mode: 'marker', marker: 'image_prompt_01', pattern: '', start: '', end: '', path: '', index: '' }
+  },
+  assistant: {
+    title: 'Assistant', icon: 'assistant', group: 'Văn bản',
+    desc: 'Hỏi ChatGPT / Claude / Gemini / Grok (kèm ảnh). Xuất câu trả lời thành văn bản hoặc danh sách.',
+    ins: [
+      { name: 'text', type: 'text', multi: true, label: 'Văn bản bổ sung' },
+      { name: 'image_ref', type: 'image', multi: true, label: 'Ảnh cho AI xem' }
+    ],
+    outs: [{ name: 'text', type: 'text', label: 'Câu trả lời' }],
+    data: { provider: 'chatgpt', text: '', exportAs: 'list' }
+  },
+  list: {
+    title: 'List', icon: 'list', group: 'Văn bản',
+    desc: 'Danh sách văn bản hoặc media, sửa từng mục. Node phía sau chạy mỗi mục một lượt.',
+    ins: [{ name: 'in', type: 'any', multi: true, label: 'Thêm vào danh sách' }],
+    outs: [{ name: 'items', type: listType, label: 'Các mục' }],
+    data: { items: [], kind: 'any', keep: 'replace' }
   },
   image: {
     title: 'Image/Video', icon: 'image', group: 'Media',
@@ -69,7 +90,18 @@ export const NODE_DEFS = {
       { name: 'media', type: (d) => (isVideo(d) ? 'video' : 'image'), label: 'Kết quả' },
       { name: 'frame', type: 'frame', label: 'Khung cuối video', when: isVideo }
     ],
-    data: { genType: 'image', model: '', ratio: '', quantity: 1, videoMode: 'frames', duration: '', prompt: '' }
+    data: { genType: 'image', model: '', ratio: '', quantity: 1, videoMode: 'frames', duration: '', prompt: '', perImage: false }
+  },
+  seedance: {
+    title: 'Seedance - Video', icon: 'video', group: 'Tạo', provider: 'seedance',
+    desc: 'Tạo video Seedance trên Dreamina (credit tài khoản của bạn). Mỗi ảnh khung đầu ra một video.',
+    ins: [
+      { name: 'frame_1', type: 'frame', multi: true, label: 'Khung đầu (mỗi ảnh một video)' },
+      { name: 'frame_2', type: 'frame', multi: false, label: 'Khung cuối' },
+      { name: 'text', type: 'text', multi: true, label: 'Prompt' }
+    ],
+    outs: [{ name: 'media', type: 'video', label: 'Video' }],
+    data: { genType: 'video', model: '', ratio: '', duration: '', prompt: '' }
   },
   chatgpt: {
     title: 'ChatGPT', icon: 'chat', group: 'Tạo', provider: 'chatgpt', desc: 'Tạo ảnh bằng ChatGPT.',

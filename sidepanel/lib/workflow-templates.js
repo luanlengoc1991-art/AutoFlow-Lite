@@ -41,7 +41,43 @@ function storyboardTemplate(scenes = 3) {
   });
 }
 
+// Theo video Magnific: ảnh sản phẩm → Assistant nghĩ N bối cảnh (List sửa được) → N ảnh → N video 360°.
+function productAdTemplate(video = 'seedance') {
+  return build(`Quảng cáo sản phẩm: ảnh → bối cảnh → ảnh → video (${video === 'seedance' ? 'Seedance' : 'Flow'})`, () => {
+    const product = createNode('image', 40, 120, { name: 'Ảnh sản phẩm' });
+    const ai = createNode('assistant', 400, 120, {
+      name: 'Assistant #1', provider: 'chatgpt', exportAs: 'list',
+      text: 'I want to create an ad campaign for this product. Give me 8 different environments that would make sense for this product to be placed in. It should look like an ad, no people. Different close-up image environments with different bright colors.'
+    });
+    const ideas = createNode('list', 780, 120, { name: 'Bối cảnh', kind: 'text' });
+    const img = createNode('generate', 1160, 40, { name: 'Ảnh quảng cáo', ratio: '9:16' });
+    const shots = createNode('list', 1540, 40, { name: 'Ảnh', kind: 'image' });
+    const motion = createNode('text', 1540, 640, { name: 'Prompt video', text: 'Create a 360 video of this product in an advertisement style' });
+    const vid = video === 'seedance'
+      ? createNode('seedance', 1920, 40, { name: 'Video quảng cáo', ratio: '9:16', duration: '5s' })
+      : createNode('generate', 1920, 40, { name: 'Video quảng cáo', genType: 'video', videoMode: 'frames', ratio: '9:16' });
+    const clips = createNode('list', 2300, 40, { name: 'Video', kind: 'video' });
+    const dl = createNode('download', 2680, 120, { name: 'Tải về' });
+    return {
+      nodes: [product, ai, ideas, img, shots, motion, vid, clips, dl],
+      edges: [edge(product, 'media', ai, 'image_ref'), edge(ai, 'text', ideas, 'in'),
+        edge(ideas, 'items', img, 'text'), edge(product, 'media', img, 'image_ref'), edge(img, 'media', shots, 'in'),
+        edge(shots, 'items', vid, 'frame_1'), edge(motion, 'text', vid, 'text'), edge(vid, 'media', clips, 'in'), edge(clips, 'items', dl, 'media')]
+    };
+  });
+}
+
 export const TEMPLATES = [
+  {
+    id: 'tpl-product-ad', name: 'Quảng cáo sản phẩm: ảnh → bối cảnh → ảnh → video', category: 'Video Generation', color: '#00c2ff',
+    desc: 'Như video hướng dẫn: tải ảnh sản phẩm, Assistant (ChatGPT/Claude) nghĩ 8 bối cảnh vào List để sửa, Flow tạo 8 ảnh giữ đúng sản phẩm, Seedance tạo mỗi ảnh một video 360°.',
+    make: () => productAdTemplate('seedance')
+  },
+  {
+    id: 'tpl-product-ad-flow', name: 'Quảng cáo sản phẩm (video bằng Google Flow)', category: 'Video Generation', color: '#4285f4',
+    desc: 'Cùng quy trình nhưng bước video dùng Veo trên Google Flow (khung đầu là từng ảnh trong List).',
+    make: () => productAdTemplate('flow')
+  },
   {
     id: 'tpl-storyboard', name: 'Storyboard tự động (ChatGPT → ảnh → video)', category: 'Storytelling', color: '#22c55e',
     desc: 'Nhập chủ đề, số cảnh, phong cách. ChatGPT viết storyboard có mốc [image_prompt_01]/[video_prompt_01], Text Extract tách từng cảnh, Flow tạo ảnh rồi tạo video từ ảnh.',

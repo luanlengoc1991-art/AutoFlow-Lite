@@ -51,9 +51,10 @@ export function analyze(wf) {
   return { order, deps, byId, bySlug };
 }
 
-function ancestorsOf(ids, deps) {
+// stop(id): node nguồn đủ dữ liệu (vd. List đã có mục), không cần chạy lại các node phía trước nó.
+function ancestorsOf(ids, deps, stop = () => false) {
   const out = new Set();
-  const walk = (id) => { if (out.has(id)) return; out.add(id); (deps.get(id) || []).forEach(walk); };
+  const walk = (id) => { if (out.has(id)) return; out.add(id); if (!ids.includes(id) && stop(id)) return; (deps.get(id) || []).forEach(walk); };
   ids.forEach(walk);
   return out;
 }
@@ -64,9 +65,25 @@ export function nodesInNote(wf, note) {
   return wf.nodes.filter((n) => n.type !== 'note' && n.x >= x && n.y >= y && n.x < x + w && n.y < y + h).map((n) => n.id);
 }
 
-const preview = (items) => items.slice(0, 12).map((it) => (it.kind === 'text'
+const preview = (items, max = 24) => items.slice(0, max).map((it) => (it.kind === 'text'
   ? { kind: 'text', text: it.text.slice(0, 2000) }
   : { kind: it.kind, thumb: it.thumb || '', url: it.url || '', provider: it.provider || '' }));
+
+// Mục của node List được lưu lại vào node (để sửa tay rồi chạy tiếp các node phía sau).
+const MAX_LIST = 200;
+const listItem = (it) => (it.kind === 'text'
+  ? { kind: 'text', text: String(it.text || '') }
+  : { kind: it.kind === 'frame' ? 'image' : it.kind, url: it.url || '', thumb: it.thumb || '', provider: it.provider || '', ...(it.dataUrl && !it.url ? { dataUrl: it.dataUrl, mime: it.mime } : {}) });
+const listKind = (items) => {
+  const kinds = new Set(items.map((i) => i.kind));
+  return kinds.size === 1 ? [...kinds][0] : kinds.size ? 'any' : '';
+};
+
+// Ghép prompt với ảnh: cùng số lượng thì ghép 1-1, khác thì mỗi prompt × mỗi ảnh.
+function combine(a, b) {
+  if (a.length > 1 && a.length === b.length) return a.map((x, i) => [x, b[i]]);
+  return a.flatMap((x) => b.map((y) => [x, y]));
+}
 
 export class WorkflowRunner {
   constructor({ runner, log, onUpdate }) {
@@ -100,7 +117,7 @@ export class WorkflowRunner {
     });
   }
 
-  // Hỏi AI (ChatGPT/Gemini/Grok) và trả về câu trả lời văn bản.
+  // Hỏi AI (ChatGPT/Claude/Gemini/Grok) và trả về câu trả lời văn bản.
   async ask(provider, prompt, extra = {}) {
     const task = this.enqueue({ provider, chatMode: 'text', prompt, autoDownload: false, newChat: true, ...extra });
     this.onUpdate();
@@ -194,31 +211,70 @@ export class WorkflowRunner {
         return { media };
       }
 
+      case 'assistant': {
+        const provider = d.provider || 'chatgpt';
+        const refIds = [];
+        for (const it of inputs.image_ref || []) refIds.push(await this.toRef(it));
+        const request = [this.resolveMentions(d.text, ctx), ...texts].filter(Boolean).join('\n\n');
+        if (!request) throw new Error('Chưa có yêu cầu cho Assistant');
+        const wantList = d.exportAs === 'list';
+        const ask = wantList ? `${request}\n\nReturn only the items, one per line, without numbering or extra text.` : request;
+        const answer = await this.ask(provider, ask, { refIds, workflowRun: ctx.runId });
+        const lines = wantList ? splitLines(answer) : [answer.trim()];
+        return { text: lines.filter(Boolean).map((text) => ({ kind: 'text', text })) };
+      }
+
+      case 'list': {
+        const incoming = Object.values(inputs).flat().map(listItem);
+        const own = (d.items || []).map(listItem);
+        // Không có dữ liệu mới thì giữ danh sách đang có (kể cả mục đã sửa tay).
+        const items = (!incoming.length ? own : d.keep === 'append' ? [...own, ...incoming] : incoming).slice(0, MAX_LIST);
+        if (ctx.nodeState) Object.assign(ctx.nodeState, { listItems: items, listKind: listKind(items) });
+        return { items };
+      }
+
       case 'generate':
+      case 'seedance':
       case 'chatgpt':
       case 'gemini':
       case 'grok': {
         const own = this.resolveMentions(d.prompt, ctx);
-        const prompts = texts.length ? texts.map((t) => (own ? (own.includes('{input}') ? own.replaceAll('{input}', t) : `${own} ${t}`) : t)) : own ? [own] : [];
+        let prompts = texts.length ? texts.map((t) => (own ? (own.includes('{input}') ? own.replaceAll('{input}', t) : `${own} ${t}`) : t)) : own ? [own] : [];
+        const isSeedance = node.type === 'seedance';
+        const isVideo = isSeedance || (node.type === 'generate' && d.genType === 'video');
+        const usesFrames = isSeedance || (isVideo && d.videoMode === 'frames');
+        // Seedance tạo được video chỉ từ ảnh khung đầu.
+        if (!prompts.length && isSeedance && inputs.frame_1?.length) prompts = [''];
         if (!prompts.length) throw new Error('Chưa có prompt (nối node Prompt hoặc nhập prompt trong node)');
-        const isVideo = node.type === 'generate' && d.genType === 'video';
-        let refIds = [];
-        if (isVideo && d.videoMode === 'frames') {
-          for (const port of ['frame_1', 'frame_2']) if (inputs[port]?.[0]) refIds.push(await this.toRef(inputs[port][0]));
+        // Mỗi lượt: một prompt + bộ ảnh tham chiếu của lượt đó.
+        let jobs;
+        if (usesFrames) {
+          const end = inputs.frame_2?.[0] ? await this.toRef(inputs.frame_2[0]) : null;
+          const starts = [];
+          for (const it of inputs.frame_1 || []) starts.push(await this.toRef(it));
+          jobs = combine(prompts, starts.length ? starts : [null]).map(([prompt, start]) => ({ prompt, refIds: [start, end].filter(Boolean) }));
         } else {
-          for (const it of inputs.image_ref || []) refIds.push(await this.toRef(it));
+          const refs = [];
+          for (const it of inputs.image_ref || []) refs.push(await this.toRef(it));
           // Ingredients: video chuyển động mẫu cũng được tải lên làm thành phần.
-          if (isVideo && inputs.video_ref?.[0]) refIds.push(await this.toRef(inputs.video_ref[0]));
+          const extra = isVideo && inputs.video_ref?.[0] ? [await this.toRef(inputs.video_ref[0])] : [];
+          jobs = d.perImage && refs.length > 1
+            ? combine(prompts, refs).map(([prompt, ref]) => ({ prompt, refIds: [ref, ...extra] }))
+            : prompts.map((prompt) => ({ prompt, refIds: [...refs, ...extra] }));
         }
-        const common = { workflowRun: ctx.runId, autoDownload: false, refIds };
-        const tasks = prompts.map((prompt) => (node.type === 'generate'
-          ? this.enqueue({
-            ...common, prompt, provider: 'flow', genType: isVideo ? 'video' : 'image',
-            videoMode: isVideo ? (refIds.length ? d.videoMode : 'text') : 'text',
-            model: d.model || '', ratio: d.ratio || '', quantity: Math.min(4, Math.max(1, +d.quantity || 1)),
-            duration: isVideo ? d.duration || '' : '', resolution: ''
-          })
-          : this.enqueue({ ...common, prompt, provider: node.type, chatMode: 'image', newChat: d.newChat !== false })));
+        const tasks = jobs.map(({ prompt, refIds }) => {
+          const common = { workflowRun: ctx.runId, autoDownload: false, refIds, prompt };
+          if (isSeedance) return this.enqueue({ ...common, provider: 'seedance', genType: 'video', model: d.model || '', ratio: d.ratio || '', duration: d.duration || '' });
+          if (node.type === 'generate') {
+            return this.enqueue({
+              ...common, provider: 'flow', genType: isVideo ? 'video' : 'image',
+              videoMode: isVideo ? (refIds.length ? d.videoMode : 'text') : 'text',
+              model: d.model || '', ratio: d.ratio || '', quantity: Math.min(4, Math.max(1, +d.quantity || 1)),
+              duration: isVideo ? d.duration || '' : '', resolution: ''
+            });
+          }
+          return this.enqueue({ ...common, provider: node.type, chatMode: 'image', newChat: d.newChat !== false });
+        });
         const st = ctx.nodeState;
         if (st) Object.assign(st, { total: tasks.length, done: 0 });
         this.onUpdate();
@@ -270,14 +326,15 @@ export class WorkflowRunner {
   // opts.only: id node cần chạy (kèm node phía trước chưa có kết quả lưu sẵn).
   async run(workflow, opts = {}) {
     if (this.state?.running) throw new Error('Đang chạy một workflow khác');
-    const { order, deps, bySlug } = analyze(workflow);
+    const { order, deps, bySlug, byId } = analyze(workflow);
     if (!order.length) throw new Error('Workflow trống, hãy thêm node');
     const cached = this.cache.get(workflow.id) || {};
     let runSet = null;
     if (opts.only?.length) {
       runSet = new Set(opts.only);
       // Node phía trước: dùng kết quả lần trước nếu có, nếu không thì chạy lại.
-      for (const id of ancestorsOf(opts.only, deps)) if (!runSet.has(id) && !cached[id]) runSet.add(id);
+      const filledList = (id) => byId.get(id)?.type === 'list' && byId.get(id).data.items?.length > 0;
+      for (const id of ancestorsOf(opts.only, deps, filledList)) if (!runSet.has(id) && !cached[id]) runSet.add(id);
     }
     const wanted = new Set(workflow.edges.map((e) => `${e.from.node}:${e.from.port}`));
     const ctx = {
@@ -297,7 +354,11 @@ export class WorkflowRunner {
     try {
       for (const node of order) {
         if (ctx.cancelled || this.runner.stopRequested) { ctx.cancelled = true; break; }
-        if (runSet && !runSet.has(node.id)) { ctx.outputs.set(node.id, cached[node.id] || {}); continue; }
+        if (runSet && !runSet.has(node.id)) {
+          // List giữ đúng các mục đang hiển thị (có thể đã sửa tay), không dùng bản cache cũ.
+          ctx.outputs.set(node.id, node.type === 'list' && node.data.items?.length ? { items: node.data.items.map(listItem) } : cached[node.id] || {});
+          continue;
+        }
         const st = this.state.nodes[node.id];
         const inputs = {};
         let hasUpstream = false, upstreamItems = 0;
@@ -308,16 +369,17 @@ export class WorkflowRunner {
           (inputs[e.to.port] ||= []).push(...items);
         }
         if (!node.data.enabled) { Object.assign(st, { status: 'skipped', error: 'Node đang tắt' }); ctx.outputs.set(node.id, {}); this.onUpdate(); continue; }
-        const needsInput = NODE_DEFS[node.type].ins.length && !['prompt', 'generate', 'chatgpt', 'gemini', 'grok'].includes(node.type);
+        const needsInput = NODE_DEFS[node.type].ins.length && !['prompt', 'generate', 'seedance', 'chatgpt', 'gemini', 'grok', 'assistant', 'list'].includes(node.type);
         if (hasUpstream && !upstreamItems && needsInput) { Object.assign(st, { status: 'skipped' }); ctx.outputs.set(node.id, {}); this.onUpdate(); continue; }
         st.status = 'running';
+        st.startedAt = Date.now();
         ctx.nodeState = st;
         this.onUpdate();
         try {
           const out = await this.execNode(node, inputs, ctx);
           ctx.outputs.set(node.id, out);
           const items = Object.values(out).flat();
-          Object.assign(st, { status: 'done', count: items.length, preview: preview(items) });
+          Object.assign(st, { status: 'done', count: items.length, preview: preview(items, node.type === 'list' ? MAX_LIST : 24), finishedAt: Date.now() });
         } catch (e) {
           ctx.outputs.set(node.id, {});
           Object.assign(st, { status: 'error', error: e.message });

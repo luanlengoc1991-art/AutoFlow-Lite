@@ -977,7 +977,12 @@ async function runWorkflow(id, only) {
     const cur = aflWorkflows.find((x) => x.id === id);
     if (cur && wfRunner.state) {
       cur.results = { ...(cur.results || {}) };
-      for (const [nodeId, s] of Object.entries(wfRunner.state.nodes)) cur.results[nodeId] = { status: s.status, count: s.count, error: s.error || '', preview: s.preview || [] };
+      for (const [nodeId, s] of Object.entries(wfRunner.state.nodes)) {
+        cur.results[nodeId] = { status: s.status, count: s.count, error: s.error || '', preview: s.preview || [] };
+        // Node List giữ các mục vừa nhận để sửa tay và chạy lại các node phía sau.
+        const node = s.listItems && cur.nodes?.find((n) => n.id === nodeId);
+        if (node) Object.assign(node.data, { items: s.listItems, ...(s.listKind ? { kind: s.listKind } : {}) });
+      }
       const today = new Date().toISOString().slice(0, 10);
       cur.runs = { date: today, count: (cur.runs?.date === today ? cur.runs.count : 0) + 1 };
       store.workflows = aflWorkflows;

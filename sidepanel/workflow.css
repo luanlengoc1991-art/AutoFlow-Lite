@@ -259,3 +259,56 @@ details.adv summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 .search-list button:hover { background: #262626; }
 
 .toast { position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%); background: #f2f2f2; color: #141414; padding: 8px 16px; border-radius: 999px; font-weight: 600; z-index: 60; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+
+/* ---------- Xem kết quả trong node (lật trang, kích thước, thời lượng) ---------- */
+.nb-media .viewer { position: absolute; inset: 0; display: grid; place-items: center; }
+.nb-media .viewer.has img { position: absolute; inset: 0; }
+.play-badge { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 40px; height: 40px; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; display: grid; place-items: center; font-size: 14px; pointer-events: none; }
+.dims { position: absolute; right: 8px; top: 8px; font-size: 10.5px; color: #eee; background: rgba(0,0,0,.55); border-radius: 6px; padding: 1px 6px; pointer-events: none; }
+.dims:empty { display: none; }
+.dims.sm { right: 4px; top: 4px; font-size: 9px; padding: 0 4px; }
+.pager { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); display: flex; align-items: center; gap: 4px; background: rgba(0,0,0,.6); border-radius: 999px; padding: 2px 4px; font-size: 11px; color: #eee; z-index: 2; }
+.pager button { width: 20px; height: 20px; border: 0; border-radius: 50%; background: transparent; color: #eee; font-size: 14px; line-height: 1; }
+.pager button:hover { background: rgba(255,255,255,.15); }
+.gen-status { position: absolute; left: 10px; bottom: 10px; z-index: 2; font-size: 11px; color: #ddd; background: rgba(0,0,0,.55); padding: 2px 8px; border-radius: 6px; }
+.card > .gen-status { position: static; margin: 0 8px 8px; display: inline-block; }
+.lightbox video { max-width: 92vw; max-height: 90vh; border-radius: 8px; background: #000; }
+
+/* Dây mang nhiều mục: nét đứt. */
+#edges path.wire.multi { stroke-dasharray: 7 5; opacity: .8; }
+
+/* ---------- Node List ---------- */
+.list-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 26px 14px; color: #777; text-align: center; font-size: 11.5px; }
+.list-empty b { color: #ddd; font-size: 13px; margin-top: 4px; }
+.list-empty .row { display: flex; gap: 6px; margin-top: 10px; }
+.li-add { height: 26px; padding: 0 10px; border-radius: 7px; border: 1px solid #333; background: #232323; color: #ddd; font-size: 11px; }
+.li-add:hover { border-color: var(--accent); color: var(--accent); }
+.list-body { max-height: 360px; overflow: auto; padding: 8px 8px 0; display: flex; flex-direction: column; gap: 4px; }
+.li { position: relative; border-radius: 8px; background: #202020; border: 1px solid transparent; }
+.li:hover, .li:focus-within { border-color: #3a3a3a; }
+.li textarea { display: block; width: 100%; resize: vertical; min-height: 38px; background: transparent; border: 0; outline: none; color: #ddd; font: inherit; font-size: 11.5px; line-height: 1.4; padding: 6px 26px 6px 8px; user-select: text; }
+.li-del { position: absolute; right: 3px; top: 3px; width: 20px; height: 20px; border: 0; border-radius: 6px; background: rgba(0,0,0,.55); color: #bbb; display: none; place-items: center; padding: 0; }
+.li-del svg { width: 12px; height: 12px; }
+.li:hover .li-del, .lm:hover .li-del { display: grid; }
+.li-del:hover { color: var(--danger); }
+.li-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding-bottom: 4px; }
+.lm { position: relative; aspect-ratio: 9 / 16; border-radius: 6px; overflow: hidden; background: #161616; display: grid; place-items: center; color: #555; }
+.lm img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
+
+/* ---------- Assistant ---------- */
+.chip.run-chip { margin-left: 2px; width: 24px; padding: 0; justify-content: center; border-radius: 50%; background: #f4f4f4; color: #111; border: 0; }
+.chip.run-chip:hover { background: var(--accent); }
+
+/* Đổi tên node trên tiêu đề. */
+.label-edit { background: #1b1b1b; border: 1px solid var(--accent); border-radius: 5px; color: #eee; font: inherit; font-size: 12px; padding: 0 5px; height: 20px; outline: none; width: 200px; user-select: text; }
+
+/* ---------- Canvas trống ---------- */
+.quick-start { position: fixed; left: 50%; top: 46%; transform: translate(-50%, -50%); text-align: center; z-index: 5; }
+.quick-start h2 { font-size: 20px; margin: 0 0 4px; }
+.quick-start p { color: var(--muted); margin: 0 0 18px; font-size: 12.5px; }
+.qs-cards { display: grid; grid-template-columns: repeat(6, 118px); gap: 8px; }
+.qs-cards button { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 12px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--card); color: var(--text); text-align: left; }
+.qs-cards button:hover { border-color: var(--accent); }
+.qs-cards .ic { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; background: #262626; color: var(--accent); margin-bottom: 6px; }
+.qs-cards b { font-size: 12px; }
+.qs-cards small { color: var(--muted); font-size: 10.5px; }

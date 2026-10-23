@@ -20,6 +20,8 @@ const patch = (file, pairs) => {
 };
 patch('manifest.json', [['https://flow.google.com/*', 'http://127.0.0.1:8765/project/*'], ['"https://chatgpt.com/*"', '"http://127.0.0.1:8765/chat*"']]);
 patch('sidepanel/lib/providers.js', [['https://flow.google.com/*', 'http://127.0.0.1:8765/project/*'], ["'https://chatgpt.com/*'", "'http://127.0.0.1:8765/chat*'"], ["'https://chatgpt.com/'", "'http://127.0.0.1:8765/chat'"]]);
+patch('manifest.json', [['https://dreamina.capcut.com/*', 'http://127.0.0.1:8765/dreamina*']]);
+patch('sidepanel/lib/providers.js', [["'https://dreamina.capcut.com/*'", "'http://127.0.0.1:8765/dreamina*'"], ["'https://dreamina.capcut.com/ai-tool/generate?type=video'", "'http://127.0.0.1:8765/dreamina'"]]);
 patch('background.js', [["'flow.google.com'", "'127.0.0.1:8765'"]]);
 
 const dlDir = path.join(workDir, 'downloads');
@@ -257,7 +259,7 @@ try {
   const ed = await connect(edTab.webSocketDebuggerUrl);
   await ed.send('Emulation.setDeviceMetricsOverride', { width: 1500, height: 900, deviceScaleFactor: 1, mobile: false });
   await sleep(2500);
-  const edInfo = await ed.ev(`({nodes: document.querySelectorAll('.node').length, wires: document.querySelectorAll('#edges path.wire').length, name: document.getElementById('wf-title').value, done: document.querySelectorAll('.node .nb-media .grid img').length})`);
+  const edInfo = await ed.ev(`({nodes: document.querySelectorAll('.node').length, wires: document.querySelectorAll('#edges path.wire').length, name: document.getElementById('wf-title').value, done: document.querySelectorAll('.node .nb-media .viewer img').length})`);
   check('trình soạn dựng 4 node + 5 dây, hiện ảnh kết quả đã lưu', edInfo.nodes === 4 && edInfo.wires === 5 && edInfo.name === 'Test WF' && edInfo.done >= 1, edInfo);
   // Thêm node Prompt qua menu (gõ tìm + Enter)
   await ed.ev(`(()=>{document.querySelector('[data-act=add]').click();const i=document.querySelector('.add-pop input');i.value='prompt';i.dispatchEvent(new Event('input'));i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));})()`);
@@ -372,6 +374,97 @@ try {
   for (let i = 0; i < 60; i++) { await sleep(1500); storyState = await P(`document.getElementById('wf-run').innerText`); if (/Story WF[\s\S]*đã kết thúc/.test(storyState)) break; }
   const storySubs = (await flowPage.ev('window.mock.submits')).slice(beforeStory);
   check('Storyboard: @mention + AI + Text Extract theo mốc → Flow nhận đúng cảnh 02', storySubs.length === 1 && storySubs[0].text === 'Caveman scene 02 still image', { storySubs, storyState });
+
+  // ---- Quảng cáo sản phẩm: Assistant xuất danh sách → List → ảnh (giữ sản phẩm) → List ảnh → mỗi ảnh một video ----
+  await P(`(async()=>{
+    const N=(id,type,data)=>({id,type,x:0,y:0,data:Object.assign({name:id,slug:id,enabled:true},data)});
+    const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const nodes=[N('product','image',{media:[{kind:'image',dataUrl:png,mime:'image/png',thumb:png}]}),
+      N('ai','assistant',{provider:'chatgpt',text:'Write 3 distinct ad environments for this product',exportAs:'list'}),
+      N('ideas','list',{items:[],kind:'any',keep:'replace'}),
+      N('g1','generate',{genType:'image',model:'',ratio:'9:16',quantity:1,videoMode:'frames',duration:'',prompt:'',perImage:false}),
+      N('shots','list',{items:[],kind:'image',keep:'replace'}),
+      N('motion','text',{text:'Create a 360 video of this product'}),
+      N('v1','generate',{genType:'video',model:'',ratio:'9:16',quantity:1,videoMode:'frames',duration:'',prompt:''}),
+      N('clips','list',{items:[],kind:'video',keep:'replace'})];
+    const E=(a,ap,b,bp)=>({id:a+b+bp,from:{node:a,port:ap},to:{node:b,port:bp}});
+    const edges=[E('product','media','ai','image_ref'),E('ai','text','ideas','in'),E('ideas','items','g1','text'),E('product','media','g1','image_ref'),
+      E('g1','media','shots','in'),E('shots','items','v1','frame_1'),E('motion','text','v1','text'),E('v1','media','clips','in')];
+    const d=await chrome.storage.local.get('aflWorkflows');const list=d.aflWorkflows||[];
+    list.unshift({id:'wfad',name:'Ad WF',enabled:true,nodes,edges,results:{},updatedAt:Date.now()});
+    await chrome.storage.local.set({aflWorkflows:list});return 1})()`);
+  await sleep(800);
+  const beforeAd = (await flowPage.ev('window.mock.submits')).length;
+  await P(`(()=>{document.querySelector('[data-tab=workflow]').click();document.querySelector('[data-sub=workflows]').click();document.querySelector('#wf-list [data-id=wfad] [data-act=run]').click();})()`);
+  let adState = '';
+  for (let i = 0; i < 120; i++) { await sleep(1500); adState = await P(`document.getElementById('wf-run').innerText`); if (/Ad WF[\s\S]*đã kết thúc/.test(adState)) break; }
+  const adSubs = (await flowPage.ev('window.mock.submits')).slice(beforeAd);
+  const adImgs = adSubs.filter((s) => s.mode === 'IMAGE'), adVids = adSubs.filter((s) => s.mode === 'VIDEO');
+  check('Assistant xuất danh sách → mỗi mục một ảnh, giữ ảnh sản phẩm làm tham chiếu', adImgs.length === 3 && adImgs.every((s, i) => s.text === `A cinematic shot number ${i + 1} of the idea` && s.refs === 1), { adImgs, adState });
+  check('List 3 ảnh → khung đầu: mỗi ảnh một video', adVids.length === 3 && adVids.every((s) => s.refs === 1 && s.text === 'Create a 360 video of this product'), adVids);
+  const adSaved = await P(`(async()=>{const d=await chrome.storage.local.get('aflWorkflows');const w=d.aflWorkflows.find(x=>x.id==='wfad');const by=(id)=>w.nodes.find(n=>n.id===id).data;return {ideas:by('ideas').items.map(i=>i.text),ideasKind:by('ideas').kind,shots:by('shots').items.length,clips:by('clips').items.map(i=>i.kind)}})()`);
+  check('List lưu các mục vừa nhận vào workflow', adSaved.ideas.length === 3 && adSaved.ideasKind === 'text' && adSaved.shots === 3 && adSaved.clips.length === 3 && adSaved.clips.every((k) => k === 'video'), adSaved);
+  // Sửa List (bỏ 1 mục, đổi 1 mục) rồi chạy riêng node ảnh: dùng đúng danh sách đã sửa, không hỏi lại AI.
+  await P(`(async()=>{const d=await chrome.storage.local.get('aflWorkflows');const w=d.aflWorkflows.find(x=>x.id==='wfad');const it=w.nodes.find(n=>n.id==='ideas').data;it.items=[{kind:'text',text:'Edited scene A'},it.items[2]];await chrome.storage.local.set({aflWorkflows:d.aflWorkflows});const {store}=await import('./lib/store.js');await store.load();return 1})()`);
+  await sleep(600);
+  const chatTasks = `(async()=>{const {store}=await import('./lib/store.js');return store.tasks.filter(t=>t.provider==='chatgpt').length})()`;
+  const chatBefore = await P(chatTasks);
+  const beforeOnly = (await flowPage.ev('window.mock.submits')).length;
+  await ed.ev(`chrome.runtime.sendMessage({type:'afl:runWorkflow', id:'wfad', only:['g1']})`);
+  for (let i = 0; i < 60; i++) { await sleep(1500); adState = await P(`document.getElementById('wf-run').innerText`); if (/Ad WF[\s\S]*đã kết thúc/.test(adState) && !/đang chạy/.test(adState)) break; }
+  const onlySubs = (await flowPage.ev('window.mock.submits')).slice(beforeOnly);
+  const chatAfter = await P(chatTasks);
+  check('chạy riêng node ảnh: dùng List đã sửa tay, không gọi lại AI', onlySubs.length === 2 && onlySubs[0].text === 'Edited scene A' && onlySubs[1].text === 'A cinematic shot number 3 of the idea' && chatAfter === chatBefore, { onlySubs, chatBefore, chatAfter });
+  // Trình soạn: List hiện từng mục sửa được, node ảnh có lật trang 01/03, dây mang nhiều mục nét đứt.
+  const adEdTab = await newTab(`chrome-extension://${extId}/sidepanel/workflow.html?id=wfad`);
+  const adEd = await connect(adEdTab.webSocketDebuggerUrl);
+  await adEd.send('Emulation.setDeviceMetricsOverride', { width: 1500, height: 900, deviceScaleFactor: 1, mobile: false });
+  await sleep(2500);
+  const adEdInfo = await adEd.ev(`({rows: document.querySelectorAll('.node[data-node=ideas] .li textarea').length, first: document.querySelector('.node[data-node=ideas] .li textarea')?.value,
+    pager: document.querySelector('.node[data-node=v1] .pager span')?.textContent || '', multi: document.querySelectorAll('#edges path.wire.multi').length,
+    grid: document.querySelectorAll('.node[data-node=shots] .lm img').length})`);
+  check('trình soạn: List sửa được từng mục, lật trang kết quả, dây nét đứt', adEdInfo.rows === 2 && adEdInfo.first === 'Edited scene A' && adEdInfo.pager === '01/03' && adEdInfo.multi >= 2 && adEdInfo.grid === 3, adEdInfo);
+  const snap = async (page, name) => { const r = await page.send('Page.captureScreenshot', { format: 'png' }); if (r?.result?.data) fs.writeFileSync(path.join(workDir, name), Buffer.from(r.result.data, 'base64')); };
+  await adEd.ev(`document.querySelector('#toolbar [data-act=arrange]').click()`);
+  await sleep(800);
+  await snap(adEd, 'editor-ad.png');
+  // Workflow trống: thẻ bắt đầu nhanh.
+  const emptyTab = await newTab(`chrome-extension://${extId}/sidepanel/workflow.html?name=Empty`);
+  const emptyEd = await connect(emptyTab.webSocketDebuggerUrl);
+  await emptyEd.send('Emulation.setDeviceMetricsOverride', { width: 1500, height: 900, deviceScaleFactor: 1, mobile: false });
+  await sleep(2000);
+  check('workflow trống hiện thẻ bắt đầu nhanh', (await emptyEd.ev(`document.querySelectorAll('.quick-start [data-qs]').length`)) === 6);
+  await snap(emptyEd, 'editor-empty.png');
+  await emptyEd.ev(`document.querySelector('[data-qs=assistant]').click()`);
+  await sleep(500);
+  check('bấm thẻ thêm node có tên tự đánh số', (await emptyEd.ev(`document.querySelector('.node .label span')?.textContent + '|' + !document.querySelector('.quick-start')`)) === 'Assistant #1|true');
+  // Đổi tên node bằng nhấp đúp vào tiêu đề.
+  await adEd.ev(`(()=>{const l=document.querySelector('.node[data-node=g1] > .label');l.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));const i=document.querySelector('.label-edit');i.value='Shoe Image';i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));})()`);
+  await sleep(1200);
+  const renamed = await adEd.ev(`document.querySelector('.node[data-node=g1] > .label span')?.textContent`);
+  check('đổi tên node bằng nhấp đúp vào tiêu đề', renamed === 'Shoe Image', renamed);
+
+  // ---- Seedance (Dreamina giả lập): List 2 ảnh → mỗi ảnh một video, đúng model / tỉ lệ / thời lượng ----
+  await P(`(async()=>{
+    const N=(id,type,data)=>({id,type,x:0,y:0,data:Object.assign({name:id,slug:id,enabled:true},data)});
+    const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const img={kind:'image',dataUrl:png,mime:'image/png',thumb:png};
+    const nodes=[N('frames','list',{items:[img,img],kind:'image',keep:'replace'}),N('mv','text',{text:'Slow 360 orbit around the product'}),
+      N('sd','seedance',{genType:'video',model:'Seedance 2.0 Fast',ratio:'9:16',duration:'10s',prompt:''})];
+    const E=(a,ap,b,bp)=>({id:a+b+bp,from:{node:a,port:ap},to:{node:b,port:bp}});
+    const d=await chrome.storage.local.get('aflWorkflows');const list=d.aflWorkflows||[];
+    list.unshift({id:'wfsd',name:'Seedance WF',enabled:true,nodes,edges:[E('frames','items','sd','frame_1'),E('mv','text','sd','text')],results:{},updatedAt:Date.now()});
+    await chrome.storage.local.set({aflWorkflows:list});const {store}=await import('./lib/store.js');await store.load();return 1})()`);
+  await sleep(800);
+  await P(`(()=>{document.querySelector('[data-tab=workflow]').click();document.querySelector('[data-sub=workflows]').click();document.querySelector('#wf-list [data-id=wfsd] [data-act=run]').click();})()`);
+  let sdState = '';
+  for (let i = 0; i < 60; i++) { await sleep(1500); sdState = await P(`document.getElementById('wf-run').innerText`); if (/Seedance WF[\s\S]*đã kết thúc/.test(sdState)) break; }
+  const drTab = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.url.includes('/dreamina'));
+  const drPage = drTab ? await connect(drTab.webSocketDebuggerUrl) : null;
+  const drSubs = drPage ? await drPage.ev('window.dreamina.submits') : [];
+  check('Seedance: mỗi ảnh khung đầu một video, đúng model/tỉ lệ/thời lượng', drSubs.length === 2 && drSubs.every((s) => s.prompt === 'Slow 360 orbit around the product' && s.files === 1 && s.model === 'Seedance 2.0 Fast' && s.ratio === '9:16' && s.duration === '10s'), { drSubs, sdState });
+  const sdRes = await P(`(async()=>{const {store}=await import('./lib/store.js');return store.tasks.filter(t=>t.provider==='seedance').map(t=>({s:t.status,r:(t.results||[]).map(r=>r.kind)}))})()`);
+  check('Seedance: task xong, nhận video', sdRes.length === 2 && sdRes.every((t) => t.s === 'done' && t.r.length === 1 && t.r[0] === 'video'), sdRes);
 
   // ---- MCP: máy chủ autoflow-mcp.mjs thật qua stdio ↔ side panel ----
   await P(`(async()=>{const {store}=await import('./lib/store.js');Object.assign(store.settings,{mcpEnabled:true,mcpToken:'tok_test_123',mcpPort:17399,project:''});store.save('settings',0);return 1})()`);

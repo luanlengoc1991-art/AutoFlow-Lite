@@ -2,17 +2,20 @@
 // panel cấu hình node, menu chuột phải. Lưu vào chrome.storage; việc chạy do side panel đảm nhận.
 import { store } from './lib/store.js';
 import {
-  NODE_DEFS, PORT_TYPES, PROVIDER_LABEL, canConnect, portsOf, portType, createNode, newWorkflow, normalizeWorkflow, slugify, nid
+  NODE_DEFS, PORT_TYPES, PROVIDER_LABEL, TEXT_AI, canConnect, portsOf, portType, createNode, newWorkflow, normalizeWorkflow, slugify, nid
 } from './lib/workflow-nodes.js';
 import { instantiateTemplate } from './lib/workflow-templates.js';
+import { SEEDANCE_MODELS, SEEDANCE_RATIOS, SEEDANCE_DURATIONS } from './lib/defaults.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const canvas = $('canvas'), world = $('world'), nodesEl = $('nodes'), edgesEl = $('edges');
 const FALLBACK_MODELS = { image: ['Nano Banana Pro', 'Nano Banana 2', 'Imagen 4'], video: ['Veo 3.1 - Fast', 'Veo 3.1 - Quality'] };
 const RATIOS = { image: ['16:9', '9:16', '1:1', '4:3', '3:4'], video: ['16:9', '9:16'] };
-const PROVIDER_COLOR = { flow: 'conic-gradient(#4285f4 0 25%, #ea4335 0 50%, #fbbc05 0 75%, #34a853 0)', chatgpt: '#10a37f', gemini: 'linear-gradient(135deg,#4285f4,#a142f4)', grok: '#e8e8e8' };
+const PROVIDER_COLOR = { flow: 'conic-gradient(#4285f4 0 25%, #ea4335 0 50%, #fbbc05 0 75%, #34a853 0)', chatgpt: '#10a37f', gemini: 'linear-gradient(135deg,#4285f4,#a142f4)', grok: '#e8e8e8', claude: '#d97757', seedance: 'linear-gradient(135deg,#00c2ff,#7b61ff)' };
 const MAX_PROMPT = 40000;
+const pages = new Map(); // nodeId -> kết quả đang xem (01/07)
+const mediaInfo = new Map(); // url -> "1520 × 2688" / "00:05"
 
 // ---------- Biểu tượng ----------
 const I = {
@@ -42,7 +45,9 @@ const I = {
   undo: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/></svg>',
   redo: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 000 11H13"/></svg>',
   fit: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 8V5a2 2 0 012-2h3M16 3h3a2 2 0 012 2v3M21 16v3a2 2 0 01-2 2h-3M8 21H5a2 2 0 01-2-2v-3"/></svg>',
-  arrange: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>'
+  arrange: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>',
+  list: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>',
+  assistant: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>'
 };
 const portGlyph = (type) => (type === 'image' ? I.image : type === 'video' ? I.video : esc(PORT_TYPES[type]?.glyph || '*'));
 
@@ -163,12 +168,40 @@ function chipSelect(key, value, options, label) {
     <select data-k="${key}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(value) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></span>`;
 }
 
+// Kết quả trong node: xem từng cái, lật trang "03/07", góc trên hiện kích thước / thời lượng.
 function previewHtml(n) {
   const res = statusOf(n)?.preview ? statusOf(n) : runReset ? null : wf.results?.[n.id];
   const media = (res?.preview || []).filter((p) => p.kind !== 'text');
-  const isVid = n.type === 'generate' && n.data.genType === 'video';
-  if (!media.length) return `<div class="ph">${isVid ? I.video.replace(/13/g, '30') : I.image.replace(/13/g, '30')}</div>`;
-  return `<div class="grid ${media.length === 1 ? 'one' : ''}">${media.slice(0, 4).map((m) => (m.thumb ? `<img src="${m.thumb}" alt="">` : `<div class="ph">${m.kind === 'video' ? I.video : I.image}</div>`)).join('')}</div>`;
+  const isVid = n.type === 'seedance' || (n.type === 'generate' && n.data.genType === 'video');
+  if (!media.length) return `<div class="viewer"><div class="ph">${isVid ? I.video.replace(/13/g, '30') : I.image.replace(/13/g, '30')}</div></div>`;
+  const i = Math.min(pages.get(n.id) || 0, media.length - 1);
+  const m = media[i];
+  const pad = (k) => String(k).padStart(2, '0');
+  return `<div class="viewer has">${m.thumb ? `<img src="${m.thumb}" data-full="${esc(m.url || '')}" data-kind="${m.kind}" alt="">` : `<div class="ph">${m.kind === 'video' ? I.video : I.image}</div>`}
+    ${m.kind === 'video' ? '<span class="play-badge">▶</span>' : ''}
+    <span class="dims" data-info="${esc(m.url || '')}" data-kind="${m.kind}">${esc(mediaInfo.get(m.url) || '')}</span>
+    ${media.length > 1 ? `<div class="pager"><button data-act="page-prev" title="Trước">‹</button><span>${pad(i + 1)}/${pad(media.length)}</span><button data-act="page-next" title="Sau">›</button></div>` : ''}</div>`;
+}
+
+// Đọc kích thước ảnh / thời lượng video từ file gốc (best effort, lưu tạm theo URL).
+function loadMediaInfo(root) {
+  root.querySelectorAll('.dims[data-info]').forEach((el) => {
+    const url = el.dataset.info;
+    if (!url || mediaInfo.has(url)) return;
+    mediaInfo.set(url, '');
+    const show = (text) => { mediaInfo.set(url, text); document.querySelectorAll(`.dims[data-info="${CSS.escape(url)}"]`).forEach((x) => { x.textContent = text; }); };
+    if (el.dataset.kind === 'video') {
+      const v = document.createElement('video');
+      v.preload = 'metadata';
+      v.muted = true;
+      v.onloadedmetadata = () => { const s = Math.round(v.duration || 0); show(`${v.videoWidth} × ${v.videoHeight} · ${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`); v.src = ''; };
+      v.src = url;
+    } else {
+      const img = new Image();
+      img.onload = () => show(`${img.naturalWidth} × ${img.naturalHeight}`);
+      img.src = url;
+    }
+  });
 }
 
 function bodyHtml(n) {
@@ -219,6 +252,30 @@ function bodyHtml(n) {
         </div>
         <div class="chips">${chips.join('')}<span class="chip gear" data-act="config">${I.gear}</span></div>`;
     }
+    case 'assistant': {
+      const res = statusOf(n) || (runReset ? null : wf.results?.[n.id]);
+      const out = (res?.preview || []).filter((p) => p.kind === 'text').map((p, i) => (d.exportAs === 'list' ? `${i + 1}. ${p.text}` : p.text)).join('\n');
+      return `<div class="nb-text"><textarea data-k="text" placeholder="Assistant là trợ lý sáng tạo: nhập yêu cầu, nối ảnh để AI xem. VD: cho tôi 10 bối cảnh quảng cáo cho sản phẩm này">${esc(d.text)}</textarea></div>
+        ${out ? `<div class="ai-out"><span>✦ ${esc(PROVIDER_LABEL[d.provider] || '')}</span><div>${esc(out.slice(0, 1500))}</div></div>` : ''}
+        <div class="chips">${chipSelect('provider', d.provider, TEXT_AI.map((p) => [p, PROVIDER_LABEL[p]]), 'AI trả lời')}
+          ${chipSelect('exportAs', d.exportAs, [['text', 'Export as text'], ['list', 'Export as list']], 'Xuất kết quả')}
+          <span class="chip gear" data-act="config">${I.gear}</span><button class="chip run-chip" data-act="run-node" title="Chạy">${I.play}</button></div>`;
+    }
+    case 'list':
+      return listBodyHtml(n);
+    case 'seedance': {
+      const chips = [
+        chipSelect('model', d.model, [['', 'Model mặc định'], ...SEEDANCE_MODELS], 'Model'),
+        chipSelect('ratio', d.ratio, [['', 'Tỉ lệ'], ...SEEDANCE_RATIOS], 'Tỉ lệ'),
+        chipSelect('duration', d.duration, [['', 'Thời lượng'], ...SEEDANCE_DURATIONS], 'Thời lượng')
+      ];
+      return `<div class="nb-media ${ratioClass(d.ratio || '9:16')}">
+          <button class="corner-run" data-act="run-node" title="Chạy node">${I.play}</button>
+          <button class="tog sm corner-tog ${d.enabled ? 'on' : ''}" data-act="toggle-enabled" title="Bật/tắt node"></button>
+          ${previewHtml(n)}
+        </div>
+        <div class="chips">${chips.join('')}<span class="chip gear" data-act="config">${I.gear}</span></div>`;
+    }
     case 'chatgpt':
     case 'gemini':
     case 'grok':
@@ -235,6 +292,27 @@ function bodyHtml(n) {
     default:
       return '';
   }
+}
+
+// Node List: mỗi mục văn bản sửa trực tiếp; media hiện dạng lưới. Node phía sau chạy mỗi mục một lượt.
+function listBodyHtml(n) {
+  const d = n.data;
+  const items = d.items || [];
+  const nText = items.filter((i) => i.kind === 'text').length, nMedia = items.length - nText;
+  const count = [nText && `${nText} text`, nMedia && `${nMedia} ${items.some((i) => i.kind === 'video') ? 'media' : 'ảnh'}`].filter(Boolean).join(' · ') || '0 mục';
+  const add = `<button class="li-add" data-act="li-add-text">+ Text</button><button class="li-add" data-act="li-add-media">+ Media</button>`;
+  if (!items.length) {
+    return `<div class="list-empty" data-drop="1">${I.list.replace(/13/g, '28')}<b>Chưa có mục nào</b><span>Thêm mục, hoặc nối node khác vào để tự điền</span><div class="row">${add}</div></div>`;
+  }
+  const media = items.map((it, i) => ({ it, i })).filter(({ it }) => it.kind !== 'text');
+  const texts = items.map((it, i) => ({ it, i })).filter(({ it }) => it.kind === 'text');
+  return `<div class="list-body">
+      ${texts.map(({ it, i }) => `<div class="li"><textarea data-li="${i}" rows="2" spellcheck="false">${esc(it.text)}</textarea><button class="li-del" data-act="li-del" data-i="${i}" title="Xoá mục">${I.x}</button></div>`).join('')}
+      ${media.length ? `<div class="li-grid">${media.map(({ it, i }) => `<div class="lm">${it.thumb || it.dataUrl ? `<img src="${it.thumb || it.dataUrl}" data-full="${esc(it.url || '')}" data-kind="${it.kind}" alt="">` : `<div class="ph">${it.kind === 'video' ? I.video : I.image}</div>`}
+        ${it.kind === 'video' ? `<span class="dims sm" data-info="${esc(it.url || '')}" data-kind="video">${esc(mediaInfo.get(it.url) || '')}</span>` : ''}
+        <button class="li-del" data-act="li-del" data-i="${i}" title="Xoá mục">${I.x}</button></div>`).join('')}</div>` : ''}
+    </div>
+    <div class="chips">${add}${chipSelect('keep', d.keep, [['replace', 'Thay mục'], ['append', 'Keep items']], 'Khi có dữ liệu mới')}<span class="counter">${count}</span></div>`;
 }
 
 function portsHtml(n) {
@@ -293,7 +371,15 @@ function applyStatus(el, n) {
   el.querySelector(':scope > .status')?.remove();
   el.querySelector(':scope > .progress-pill')?.remove();
   el.querySelector('.nb-media > .spinner')?.remove();
+  el.querySelectorAll('.gen-status').forEach((x) => x.remove());
   if (!st || n.type === 'note') return;
+  if (st.status === 'running') {
+    // "Đang tạo video 3 / 7 · 1m 43s" (như "Generating video 3 of 7" của bản gốc).
+    const host = el.querySelector('.nb-media:not([data-drop])') || (['assistant', 'prompt', 'list'].includes(n.type) ? el.querySelector('.card') : null);
+    const what = n.type === 'seedance' || n.data.genType === 'video' ? 'video' : NODE_DEFS[n.type].provider ? 'ảnh' : '';
+    host?.insertAdjacentHTML('beforeend', `<div class="gen-status" data-start="${st.startedAt || Date.now()}" data-what="${what}" data-done="${st.done || 0}" data-total="${st.total || 0}"></div>`);
+    host && tickStatus(host.querySelector('.gen-status'));
+  }
   if (st.status === 'running' && st.total) {
     // Thanh tiến độ "đã xong / tổng" phía trên node (như bản gốc).
     const p = document.createElement('div');
@@ -302,7 +388,7 @@ function applyStatus(el, n) {
     el.appendChild(p);
   }
   const media = el.querySelector('.nb-media:not([data-drop])');
-  if (st.status === 'running' && media && !media.querySelector('.grid')) {
+  if (st.status === 'running' && media && !media.querySelector('.viewer.has')) {
     media.querySelector('.ph')?.remove();
     media.insertAdjacentHTML('beforeend', '<div class="spinner"></div>');
   }
@@ -315,6 +401,37 @@ function applyStatus(el, n) {
   }
 }
 
+function elapsed(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
+}
+function tickStatus(el) {
+  const { start, what, done, total } = el.dataset;
+  const step = +total > 1 ? ` ${Math.min(+done + 1, +total)} / ${total}` : '';
+  el.textContent = `${what ? `Đang tạo ${what}` : 'Đang chạy'}${step}… · ${elapsed(Date.now() - +start)}`;
+}
+setInterval(() => document.querySelectorAll('.gen-status').forEach(tickStatus), 1000);
+
+// Canvas trống: thẻ bắt đầu nhanh (như "Your space is ready").
+const QUICK_START = [['image', 'Media', 'Tải ảnh / video lên'], ['text', 'Text', 'Prompt, ý tưởng'], ['generate', 'Image Generator', 'Google Flow'],
+  ['seedance', 'Video Generator', 'Seedance'], ['assistant', 'Assistant', 'ChatGPT / Claude…'], ['list', 'List', 'Danh sách mục']];
+function renderQuickStart() {
+  let el = document.querySelector('.quick-start');
+  if (wf.nodes.length) { el?.remove(); return; }
+  if (el) return;
+  el = document.createElement('div');
+  el.className = 'quick-start';
+  el.innerHTML = `<h2>Workflow đã sẵn sàng</h2><p>Chọn node đầu tiên, hoặc bấm đúp vào canvas để thêm node bất kỳ</p>
+    <div class="qs-cards">${QUICK_START.map(([type, title, sub]) => `<button data-qs="${type}"><span class="ic">${I[NODE_DEFS[type].icon] || I.generate}</span><b>${title}</b><small>${sub}</small></button>`).join('')}</div>`;
+  el.addEventListener('click', (e) => {
+    const type = e.target.closest('[data-qs]')?.dataset.qs;
+    if (!type) return;
+    const c = toWorld(innerWidth / 2 - 150, innerHeight / 2 - 200);
+    addNode(type, c.x, c.y);
+  });
+  document.body.appendChild(el);
+}
+
 function renderAll() {
   nodesEl.innerHTML = '';
   // Ghi chú nằm dưới các node khác.
@@ -323,15 +440,19 @@ function renderAll() {
   renderEdges();
   renderBar();
   updateStats();
+  renderQuickStart();
+  loadMediaInfo(nodesEl);
 }
 function rerenderNode(id) {
   const n = wf.nodes.find((x) => x.id === id);
   const old = nodeEl(id);
   if (!n || !old) return;
-  old.replaceWith(buildNode(n));
+  const fresh = buildNode(n);
+  old.replaceWith(fresh);
   pruneEdges();
   renderEdges();
   renderBar();
+  loadMediaInfo(fresh);
 }
 
 // Bỏ cạnh trỏ tới cổng không còn hiển thị (vd. đổi Ảnh → Video).
@@ -368,7 +489,9 @@ function renderEdges() {
     // Dây "đang chảy": node nguồn đã có kết quả và node đích đang chạy.
     const src = statusOf(fromNode)?.status, dst = statusOf(wf.nodes.find((n) => n.id === e.to.node) || {})?.status;
     const flowing = dst === 'running' && (src === 'done' || !src);
-    html += `<path class="wire ${flowing ? 'flow' : ''} ${selectedEdge === e.id ? 'selected' : ''}" d="${d}" stroke="${color}" style="color:${color}"/><path class="hit" data-edge="${e.id}" d="${d}"/>`;
+    // Dây mang nhiều mục (List, nhiều kết quả): nét đứt.
+    const count = fromNode.type === 'list' ? (fromNode.data.items || []).length : (statusOf(fromNode) || (runReset ? null : wf.results?.[fromNode.id]))?.count || 0;
+    html += `<path class="wire ${flowing ? 'flow' : ''} ${count > 1 ? 'multi' : ''} ${selectedEdge === e.id ? 'selected' : ''}" d="${d}" stroke="${color}" style="color:${color}"/><path class="hit" data-edge="${e.id}" d="${d}"/>`;
   }
   if (drag?.kind === 'connect' && drag.to) html += `<path class="temp" d="${drag.reverse ? curve(drag.to, drag.from) : curve(drag.from, drag.to)}" stroke="${PORT_TYPES[drag.type].color}"/>`;
   edgesEl.innerHTML = html;
@@ -404,10 +527,13 @@ function renderBar() {
 function addNode(type, x, y, data) {
   pushHistory();
   const n = createNode(type, Math.round(x), Math.round(y), data);
+  // Tên tự đánh số như "Text #1", "Image Generator #2".
+  if (type !== 'note' && !data?.name) n.data.name = `${NODE_DEFS[type].title} #${wf.nodes.filter((m) => m.type === type).length + 1}`;
   if (type !== 'note') n.data.slug = uniqueSlug(n.data.name);
   wf.nodes.push(n);
   nodesEl.appendChild(buildNode(n));
   if (type === 'note') renderAll();
+  renderQuickStart();
   select([n.id]);
   dirty();
   return n;
@@ -468,6 +594,12 @@ function connect(from, to) {
   pushHistory();
   if (!inPort.multi) wf.edges = wf.edges.filter((e) => !(e.to.node === to.node && e.to.port === to.port));
   wf.edges.push({ id: nid(), from, to });
+  // List trống nhận kiểu theo nguồn nối vào (văn bản / ảnh / video) để nối tiếp đúng cổng.
+  if (b.type === 'list' && !(b.data.items || []).length && b.data.kind === 'any') {
+    const t = portType(a, outPort);
+    b.data.kind = t === 'frame' ? 'image' : t;
+    rerenderNode(b.id);
+  }
   renderEdges();
   dirty();
   return true;
@@ -625,7 +757,10 @@ window.addEventListener('mouseup', (e) => {
   if (d.kind === 'pan') { dirtyView(); return; }
   if (d.kind === 'move') {
     if (d.moved) dirty();
-    else if (d.target.closest('.nb-media img')) openLightbox(d.target.closest('.nb-media img').src);
+    else if (d.target.closest('.nb-media img, .lm img')) {
+      const img = d.target.closest('.nb-media img, .lm img');
+      openLightbox(img.dataset.full || img.src, img.dataset.kind, img.src);
+    }
     else if (d.target.closest('.nb-media[data-drop]')) openFilePicker(d.ids[0]);
   }
   if (d.kind === 'resize') { dirty(); renderAll(); }
@@ -649,13 +784,42 @@ function dirtyView() { clearTimeout(viewTimer); viewTimer = setTimeout(() => { w
 
 canvas.addEventListener('wheel', (e) => {
   if (e.target.closest('textarea') && e.target.scrollHeight > e.target.clientHeight && !e.ctrlKey) return;
+  const scroller = e.target.closest('.list-body, .ai-out');
+  if (scroller && scroller.scrollHeight > scroller.clientHeight && !e.ctrlKey) return;
   e.preventDefault();
   if (e.ctrlKey || !e.shiftKey) zoomAt(e.clientX, e.clientY, view.zoom * Math.exp(-e.deltaY * 0.0015));
   else { view.x -= e.deltaY; applyView(); }
   dirtyView();
 }, { passive: false });
 
+// Đổi tên node ngay trên tiêu đề (nhấp đúp).
+function startRename(id) {
+  const n = wf.nodes.find((x) => x.id === id);
+  const span = nodeEl(id)?.querySelector(':scope > .label span');
+  if (!n || !span) return;
+  const input = document.createElement('input');
+  input.className = 'label-edit';
+  input.value = n.data.name || '';
+  span.replaceWith(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = (ok) => {
+    if (done) return;
+    done = true;
+    const v = input.value.trim();
+    if (!ok || !v || v === n.data.name) { rerenderNode(id); return; }
+    const patch = { name: v };
+    if (!n.data.slug || n.data.slug === slugify(n.data.name)) patch.slug = uniqueSlug(v, id);
+    setData(id, patch);
+  };
+  input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); });
+  input.addEventListener('blur', () => finish(true));
+}
+
 canvas.addEventListener('dblclick', (e) => {
+  const label = e.target.closest('.node > .label');
+  if (label) { startRename(label.closest('.node').dataset.node); return; }
   const nodeDiv = e.target.closest('.node');
   if (nodeDiv && !e.target.closest(INTERACTIVE)) { openSide(nodeDiv.dataset.node); return; }
   if (!nodeDiv) openAddMenu(e.clientX, e.clientY);
@@ -663,8 +827,14 @@ canvas.addEventListener('dblclick', (e) => {
 
 // Sửa trực tiếp trong node.
 let editSnap = null;
-nodesEl.addEventListener('focusin', (e) => { if (e.target.matches('[data-k]')) editSnap = snapshot(); });
+nodesEl.addEventListener('focusin', (e) => { if (e.target.matches('[data-k], [data-li]')) editSnap = snapshot(); });
 nodesEl.addEventListener('input', (e) => {
+  if (e.target.dataset.li !== undefined) {
+    const n = wf.nodes.find((x) => x.id === e.target.closest('.node').dataset.node);
+    const item = n?.data.items?.[+e.target.dataset.li];
+    if (item) { item.text = e.target.value; dirty(); }
+    return;
+  }
   const k = e.target.dataset.k;
   if (!k || e.target.tagName === 'SELECT') return;
   const id = e.target.closest('.node').dataset.node;
@@ -676,7 +846,10 @@ nodesEl.addEventListener('input', (e) => {
 });
 nodesEl.addEventListener('change', (e) => {
   const k = e.target.dataset.k;
-  if (!k) return;
+  if (!k) {
+    if (e.target.dataset.li !== undefined && editSnap) { undoStack.push(editSnap); redoStack.length = 0; editSnap = null; updateUndoButtons(); }
+    return;
+  }
   const id = e.target.closest('.node').dataset.node;
   if (e.target.tagName === 'SELECT') {
     let v = e.target.value;
@@ -716,6 +889,31 @@ nodesEl.addEventListener('click', (e) => {
   if (act === 'toggle-enabled') setData(id, { enabled: !n.data.enabled });
   if (act === 'zoom-node') setData(id, { nodeZoom: ({ 1: 1.5, 1.5: 2, 2: 1 })[n.data.nodeZoom || 1] }, { history: false });
   if (act === 'run-group') runGroup(n);
+  if (act === 'page-prev' || act === 'page-next') {
+    const res = statusOf(n)?.preview ? statusOf(n) : wf.results?.[id];
+    const total = (res?.preview || []).filter((p) => p.kind !== 'text').length;
+    pages.set(id, ((pages.get(id) || 0) + (act === 'page-next' ? 1 : -1) + total) % Math.max(1, total));
+    const media = nodeEl(id).querySelector('.nb-media');
+    media.querySelector('.viewer')?.remove();
+    media.insertAdjacentHTML('beforeend', previewHtml(n));
+    loadMediaInfo(media);
+  }
+  if (act === 'li-del') {
+    pushHistory();
+    n.data.items = n.data.items.filter((_, i) => i !== +e.target.closest('[data-i]').dataset.i);
+    rerenderNode(id);
+    dirty();
+  }
+  if (act === 'li-add-text') {
+    pushHistory();
+    n.data.items = [...(n.data.items || []), { kind: 'text', text: '' }];
+    if (n.data.kind === 'any') n.data.kind = 'text';
+    rerenderNode(id);
+    dirty();
+    const tas = nodeEl(id).querySelectorAll('textarea[data-li]');
+    tas[tas.length - 1]?.focus();
+  }
+  if (act === 'li-add-media') openFilePicker(id);
 });
 
 // Kéo thả file vào node Image/Video hoặc canvas.
@@ -726,7 +924,7 @@ canvas.addEventListener('drop', async (e) => {
   const files = [...(e.dataTransfer?.files || [])].filter((f) => /^(image|video)\//.test(f.type));
   if (!files.length) return;
   const target = e.target.closest('.node');
-  const node = target && wf.nodes.find((n) => n.id === target.dataset.node && n.type === 'image');
+  const node = target && wf.nodes.find((n) => n.id === target.dataset.node && (n.type === 'image' || n.type === 'list'));
   if (node) { await addMediaToNode(node.id, files); return; }
   // Thả nhiều file ra canvas: mỗi file thành một node Image/Video (như bản gốc), có thanh tiến độ tải lên.
   const p = toWorld(e.clientX, e.clientY);
@@ -748,11 +946,14 @@ function uploadPill(total) {
   return { step: set, done: () => { el.innerHTML = `✓ Đã thêm ${total} file`; setTimeout(() => el.remove(), 1600); } };
 }
 
-function openLightbox(src) {
+function openLightbox(src, kind, fallback) {
   const back = document.createElement('div');
   back.className = 'lightbox';
-  back.innerHTML = `<img src="${src}" alt=""><button class="icon-btn" title="Đóng (Esc)">${I.x}</button>`;
-  back.addEventListener('click', (e) => { if (e.target.tagName !== 'IMG') back.remove(); });
+  back.innerHTML = `${kind === 'video' && src !== fallback ? `<video src="${esc(src)}" poster="${esc(fallback || '')}" controls autoplay loop></video>` : `<img src="${esc(src)}" alt="">`}<button class="icon-btn" title="Đóng (Esc)">${I.x}</button>`;
+  // Không mở được file gốc (cần đăng nhập): hiện ảnh xem trước.
+  const media = back.querySelector('img, video');
+  media.addEventListener('error', () => { if (fallback && media.tagName === 'IMG' && media.src !== fallback) media.src = fallback; else if (media.tagName === 'VIDEO' && fallback) media.outerHTML = `<img src="${esc(fallback)}" alt="">`; }, { once: true });
+  back.addEventListener('click', (e) => { if (!['IMG', 'VIDEO'].includes(e.target.tagName)) back.remove(); });
   document.body.appendChild(back);
 }
 
@@ -787,7 +988,11 @@ async function addMediaToNode(id, files, { quiet = false } = {}) {
     items.push({ kind, dataUrl, mime: f.type, name: f.name, thumb: await makeThumb(dataUrl, kind === 'video') });
   }
   if (!items.length) return;
-  setData(id, { media: [...(n.data.media || []), ...items] });
+  if (n.type === 'list') {
+    const all = [...(n.data.items || []), ...items];
+    const kinds = new Set(all.map((i) => i.kind));
+    setData(id, { items: all, kind: kinds.size === 1 ? [...kinds][0] : 'any' });
+  } else setData(id, { media: [...(n.data.media || []), ...items] });
   if (sideNodeId === id) openSide(id, sideTab);
   if (!quiet) toast(`Đã thêm ${items.length} file`);
 }
@@ -875,8 +1080,7 @@ function openAddMenu(x, y, opts = {}) {
     const ports = portsOf(probe, pending.dir === 'out' ? 'in' : 'out');
     return ports.some((p) => (pending.dir === 'out' ? canConnect(pending.type, portType(probe, p)) : canConnect(portType(probe, p), pending.type)));
   };
-  // Thứ tự giống bản gốc: Image/Video, Prompt, Flow, ChatGPT, Grok, Download, ...
-  const ORDER = ['image', 'prompt', 'generate', 'chatgpt', 'grok', 'gemini', 'download', 'text', 'extract', 'delay', 'note'];
+  const ORDER = ['image', 'text', 'prompt', 'assistant', 'list', 'generate', 'seedance', 'chatgpt', 'grok', 'gemini', 'download', 'extract', 'delay', 'note'];
   const all = ORDER.filter((t) => NODE_DEFS[t] && fits(t) && !(pending && t === 'note'));
   let active = 0, shown = all;
   const render = () => {
@@ -1067,15 +1271,32 @@ function configFields(n) {
   const d = draft;
   const sel = (k, opts, v) => `<select data-d="${k}">${opts.map((o) => (Array.isArray(o) ? o : [o, o])).map(([val, l]) => `<option value="${esc(val)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
   const tog = (k, on) => `<button class="tog ${on ? 'on' : ''}" data-dt="${k}"></button>`;
-  const providerOpts = [['chatgpt', 'ChatGPT'], ['gemini', 'Gemini'], ['grok', 'Grok']];
+  const providerOpts = TEXT_AI.map((p) => [p, PROVIDER_LABEL[p]]);
   switch (n.type) {
+    case 'assistant':
+      return `<div class="field"><span class="lbl">Yêu cầu cho AI (dùng @slug để chèn văn bản node khác)</span><textarea data-d="text">${esc(d.text)}</textarea>${slugHints(n.id)}</div>
+        <div class="grid2"><div class="field"><span class="lbl">AI trả lời</span>${sel('provider', providerOpts, d.provider)}</div>
+          <div class="field"><span class="lbl">Xuất kết quả</span>${sel('exportAs', [['list', 'Danh sách (mỗi dòng 1 mục)'], ['text', 'Một đoạn văn bản']], d.exportAs)}</div></div>
+        <p class="hint">Chạy trên trang AI đã đăng nhập, tính vào hạn mức gói của bạn. Nối ảnh vào cổng "Ảnh cho AI xem" để AI phân tích ảnh. "Danh sách" + node List: sửa từng mục trước khi tạo ảnh/video.</p>`;
+    case 'list':
+      return `<div class="grid2"><div class="field"><span class="lbl">Loại mục</span>${sel('kind', [['any', 'Tự nhận'], ['text', 'Văn bản'], ['image', 'Ảnh'], ['video', 'Video']], d.kind)}</div>
+          <div class="field"><span class="lbl">Khi node phía trước chạy lại</span>${sel('keep', [['replace', 'Thay toàn bộ mục'], ['append', 'Keep items (giữ và thêm)']], d.keep)}</div></div>
+        <p class="hint">${(d.items || []).length} mục. Node nối phía sau chạy <b>mỗi mục một lượt</b> (vd. 8 bối cảnh → 8 ảnh). Sửa / xoá mục ngay trên node; chạy riêng node phía sau sẽ dùng đúng danh sách đang hiển thị, không gọi lại AI.</p>`;
+    case 'seedance':
+      return `<div class="field"><span class="lbl">Prompt riêng (tuỳ chọn, dùng {input} và @slug)</span><textarea class="short" data-d="prompt">${esc(d.prompt)}</textarea>${slugHints(n.id)}</div>
+        <div class="grid2">
+          <div class="field"><span class="lbl">Model</span>${sel('model', [['', 'Theo Cài đặt'], ...SEEDANCE_MODELS], d.model)}</div>
+          <div class="field"><span class="lbl">Tỉ lệ</span>${sel('ratio', [['', 'Theo Cài đặt'], ...SEEDANCE_RATIOS], d.ratio)}</div>
+          <div class="field"><span class="lbl">Thời lượng</span>${sel('duration', [['', 'Theo Cài đặt'], ...SEEDANCE_DURATIONS], d.duration)}</div>
+        </div>
+        <p class="hint">Chạy trên Dreamina (dreamina.capcut.com) bằng credit tài khoản của bạn. Nối List ảnh vào "Khung đầu": mỗi ảnh ra một video. Cùng số prompt và ảnh thì ghép 1-1.</p>`;
     case 'prompt':
       return `<div class="field"><div class="lbl"><span>${I.prompt} Nội dung Prompt</span><label class="row">${tog('multi', d.multi)}<b>Multi-prompt</b></label></div>
         <textarea data-d="text" maxlength="${MAX_PROMPT}" placeholder="VD: A cute cat playing with yarn, cinematic lighting">${esc(d.text)}</textarea>
         <div class="row"><span class="hint">${d.multi ? 'Mỗi dòng là 1 prompt riêng.' : 'Toàn bộ là 1 prompt.'}</span><span class="spacer"></span><span class="hint">${d.text.length}/${MAX_PROMPT.toLocaleString('vi')}</span></div></div>
         <details class="adv"><summary>Mention Mode (Nâng cao)</summary>
           <p class="hint">Dùng <code>@slug</code> để chèn văn bản của node khác; <code>{input}</code> để chèn prompt từ node nối vào. Không có <code>{input}</code> thì prompt đầu vào được nối sau nội dung này.</p>${slugHints(n.id)}</details>
-        <div class="box agent"><label class="row">${tog('agent', d.agent)}<b>Dùng AI Agent</b><span class="spacer"></span><span class="hint">ChatGPT / Gemini / Grok</span></label>
+        <div class="box agent"><label class="row">${tog('agent', d.agent)}<b>Dùng AI Agent</b><span class="spacer"></span><span class="hint">ChatGPT / Claude / Gemini / Grok</span></label>
           ${d.agent ? `<div class="field"><span class="lbl">AI</span>${sel('agentProvider', providerOpts, d.agentProvider)}</div>
           <div class="field"><span class="lbl">Yêu cầu cho AI</span><textarea class="short" data-d="agentInstruction">${esc(d.agentInstruction)}</textarea></div>
           <label class="row">${tog('agentSplit', d.agentSplit)}Tách mỗi dòng trả lời thành 1 prompt</label>` : ''}</div>
@@ -1104,6 +1325,7 @@ function configFields(n) {
           ${kind === 'video' ? `<div class="field"><span class="lbl">Kiểu video</span>${sel('videoMode', [['frames', 'Frames (khung đầu/cuối)'], ['ingredients', 'Ingredients (thành phần)'], ['text', 'Chỉ văn bản']], d.videoMode)}</div>
           <div class="field"><span class="lbl">Thời lượng</span>${sel('duration', [['', 'Giữ như Flow'], '4s', '6s', '8s'], d.duration)}</div>` : ''}
         </div>
+        ${kind === 'image' || d.videoMode === 'ingredients' ? `<label class="row">${tog('perImage', d.perImage)}Mỗi ảnh tham chiếu một lượt (List 7 ảnh → 7 kết quả)</label>` : ''}
         <p class="hint">Mỗi prompt đầu vào tạo 1 lượt. Cổng ảnh tham chiếu nhận nhiều ảnh; video Frames dùng cổng Khung đầu / Khung cuối. Cổng ra "Khung cuối video" lấy frame cuối để nối sang video tiếp theo.</p>`;
     }
     case 'chatgpt':
@@ -1267,23 +1489,39 @@ function renderRunProgress() {
   if (!el) { el = document.createElement('div'); el.className = 'run-progress'; document.body.appendChild(el); }
   el.innerHTML = `${done} / ${nodes.length}<i><b style="width:${Math.round((done / Math.max(1, nodes.length)) * 100)}%"></b></i>`;
 }
-function applyRunState(state) {
+const listSynced = new Map(); // nodeId -> finishedAt đã nhận
+// initial: trạng thái của lần chạy cũ khi vừa mở trình soạn; side panel đã lưu các mục List
+// vào workflow, nên không ghi đè các mục người dùng sửa sau đó.
+function applyRunState(state, initial = false) {
+  if (initial) for (const [id, s] of Object.entries(state.nodes || {})) if (s.listItems) listSynced.set(id, s.finishedAt);
   runState = state;
   runReset = false;
+  const listChanged = [];
   for (const n of wf.nodes) {
     const el = nodeEl(n.id);
     if (!el) continue;
+    const st = state.nodes[n.id];
+    // List nhận các mục vừa chạy ra (lưu vào node để sửa tay và chạy tiếp).
+    if (n.type === 'list' && st?.status === 'done' && st.listItems && listSynced.get(n.id) !== st.finishedAt) {
+      listSynced.set(n.id, st.finishedAt);
+      n.data.items = st.listItems;
+      if (st.listKind) n.data.kind = st.listKind;
+      listChanged.push(n.id);
+      continue;
+    }
     applyStatus(el, n);
     const media = el.querySelector('.nb-media:not([data-drop])');
     if (media && (n.type === 'generate' || NODE_DEFS[n.type].provider)) {
-      media.querySelector('.grid, .ph')?.remove();
+      media.querySelector('.viewer')?.remove();
       media.insertAdjacentHTML('beforeend', previewHtml(n));
+      loadMediaInfo(media);
     }
     // Hiện "AI OUTPUT" / "EXTRACTED" khi node văn bản chạy xong (không vẽ lại khi người dùng đang gõ).
-    if ((n.type === 'prompt' || n.type === 'extract') && state.nodes[n.id]?.status === 'done' && !el.contains(document.activeElement)) {
+    if (['prompt', 'extract', 'assistant'].includes(n.type) && st?.status === 'done' && !el.contains(document.activeElement)) {
       el.querySelector('.card').innerHTML = bodyHtml(n);
     }
   }
+  if (listChanged.length) { listChanged.forEach(rerenderNode); dirty(); }
   const run = $('tb-run');
   renderRunProgress();
   run.classList.toggle('stop', !!runState.running);
@@ -1465,4 +1703,4 @@ if (!found || !wf.viewport || (wf.viewport.x === 0 && wf.viewport.y === 0)) requ
 requestAnimationFrame(() => renderEdges());
 if (!found) save();
 // Nhận trạng thái chạy hiện tại nếu side panel đang mở (không tự mở panel khi chưa có thao tác).
-chrome.runtime.sendMessage({ type: 'afl:getWorkflowState' }).then((r) => { if (r?.state?.workflowId === wf.id) applyRunState(r.state); }).catch(() => {});
+chrome.runtime.sendMessage({ type: 'afl:getWorkflowState' }).then((r) => { if (r?.state?.workflowId === wf.id) applyRunState(r.state, !r.state.running); }).catch(() => {});
