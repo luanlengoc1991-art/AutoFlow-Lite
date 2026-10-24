@@ -353,6 +353,7 @@ dialog.assistant:not([open]) { display: none; }
 .log-list { font: 11.5px/1.55 ui-monospace, "Cascadia Mono", Consolas, monospace; display: flex; flex-direction: column; gap: 2px; }
 .log-list div { white-space: pre-wrap; word-break: break-word; color: #cfcfcf; }
 .log-list .t { color: #777; }
+.log-list .old { opacity: .55; }
 .log-list .error { color: var(--danger); } .log-list .warn { color: var(--warn); } .log-list .ok { color: var(--ok); }
 
 /* ---------- Cài đặt ---------- */
@@ -395,3 +396,8 @@ dialog::backdrop { background: rgba(0,0,0,.55); }
 .search-hint { margin-top: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 12px; color: #cfcfcf; }
 .search-hint ol { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
 .img-search .btn { flex: 0 0 auto; }
+
+/* Side panel không điều khiển (đang điều khiển ở cửa sổ khác). */
+.follower { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(20, 20, 20, .92); }
+.follower .box { max-width: 320px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 18px; text-align: center; display: grid; gap: 10px; }
+.follower .box p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }

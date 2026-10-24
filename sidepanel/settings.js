@@ -285,8 +285,11 @@ document.querySelectorAll('[data-clean]').forEach((b) => b.addEventListener('cli
   toast('Đã dọn dữ liệu');
   renderStorage();
 }));
+// Token (Telegram, MCP) không đi theo file sao lưu: file hay được gửi/chia sẻ đi nơi khác.
+const SECRET_SETTINGS = ['tgToken', 'mcpToken'];
 $('backup').addEventListener('click', async () => {
   const data = await chrome.storage.local.get(null);
+  if (data.aflSettings) data.aflSettings = Object.fromEntries(Object.entries(data.aflSettings).filter(([k]) => !SECRET_SETTINGS.includes(k)));
   const blob = new Blob([JSON.stringify({ format: 'autoflow-backup', version: 1, at: Date.now(), data }, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -300,9 +303,16 @@ $('restore').addEventListener('change', async (e) => {
   if (!f) return;
   try {
     const j = JSON.parse(await f.text());
-    if (j.format !== 'autoflow-backup' || !j.data) throw new Error('bad');
+    if (j.format !== 'autoflow-backup' || !j.data || typeof j.data !== 'object') throw new Error('bad');
+    // Chỉ nhận dữ liệu của AutoFlow; giữ token đang có trên máy (file sao lưu không chứa token).
+    const data = Object.fromEntries(Object.entries(j.data).filter(([k, v]) => /^afl[A-Z]\w*$/.test(k) && v !== null && typeof v === 'object'));
+    if (!Object.keys(data).length) throw new Error('bad');
     if (!confirm('Khôi phục sẽ ghi đè dữ liệu hiện tại. Tiếp tục?')) return;
-    await chrome.storage.local.set(j.data);
+    if (data.aflSettings) {
+      const { aflSettings: cur = {} } = await chrome.storage.local.get('aflSettings');
+      data.aflSettings = { ...Object.fromEntries(Object.entries(data.aflSettings).filter(([k]) => !SECRET_SETTINGS.includes(k))), ...Object.fromEntries(SECRET_SETTINGS.filter((k) => cur[k]).map((k) => [k, cur[k]])) };
+    }
+    await chrome.storage.local.set(data);
     chrome.runtime.sendMessage({ type: 'afl:reload' }).catch(() => {});
     toast('Đã khôi phục. Side panel sẽ tải lại.');
     renderStorage();

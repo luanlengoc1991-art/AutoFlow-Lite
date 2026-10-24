@@ -43,6 +43,8 @@ export class Runner {
   async start() {
     if (this.running) { this.paused = false; this.changed(); return; }
     Object.assign(this, { running: true, paused: false, stopRequested: false, message: '', level: '' });
+    let idle;
+    this.idle = new Promise((resolve) => { idle = resolve; });
     this.log('Bắt đầu chạy hàng đợi');
     this.changed();
     try {
@@ -50,6 +52,7 @@ export class Runner {
     } catch (e) {
       this.log(`Lỗi hàng đợi: ${e.message || e}`, 'error');
     } finally {
+      if (this.detached) { this.active.clear(); this.running = false; this.paused = false; idle(); return; }
       for (const id of this.active.keys()) {
         const t = this.find(id);
         if (t && t.status === 'running') { t.status = 'cancelled'; t.error = 'Đã dừng khi đang tạo'; this.settled(t); }
@@ -69,6 +72,7 @@ export class Runner {
       }
       this.changed();
       setTimeout(() => this.broadcast(true), 4000);
+      idle();
     }
   }
 
@@ -76,6 +80,15 @@ export class Runner {
   resume() { if (this.running) { this.paused = false; this.message = ''; this.log('Tiếp tục'); this.changed(); } }
   togglePause() { this.paused ? this.resume() : this.pause(); }
   stop() { if (this.running) { this.stopRequested = true; this.paused = false; this.changed(); } }
+  // Nhường quyền điều khiển cho side panel khác: dừng vòng lặp nhưng giữ nguyên task đang tạo (panel kia nối lại
+  // theo token) và ghi ngay hàng đợi xuống storage.
+  async detach() {
+    this.detached = true;
+    this.stopRequested = true;
+    // Chờ vòng lặp thoát (có thể đang gửi dở một task: phải lưu xong token rồi mới ghi, tránh panel kia gửi lại).
+    if (this.running) await Promise.race([this.idle, sleep(30000)]);
+    await store.flush('tasks');
+  }
 
   find(id) { return store.tasks.find((t) => t.id === id); }
   busy(provider) {

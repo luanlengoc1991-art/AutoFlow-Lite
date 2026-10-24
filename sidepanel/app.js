@@ -13,6 +13,7 @@ import { mountAlbums, mountImageSearch, openAddToAlbum } from './albums.js';
 import { McpBridge, TelegramBot } from './lib/bridges.js';
 import { createNode, nid } from './lib/workflow-nodes.js';
 import { checkAll, checkAccount, STATE_TEXT } from './lib/accounts.js';
+import { Leader } from './lib/leader.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -27,9 +28,25 @@ const STATUS = { pending: 'Chờ', running: 'Đang tạo', done: 'Xong', error: 
 
 // ---------- Log & toast ----------
 const logs = [];
+// Nhật ký được lưu (chỉ panel điều khiển ghi) để đóng/mở lại side panel vẫn xem được; giữ 300 dòng mới nhất.
+const LOG_KEY = 'aflLogs', LOG_KEEP = 300;
+let logPersist = false, logTimer;
+// Không để lộ token (Telegram bot token, ?token=…) trong nhật ký.
+const redact = (s) => String(s).replace(/\b\d{6,}:[\w-]{30,}\b/g, '[token]').replace(/(token=)[^&\s]+/gi, '$1[token]');
 function log(msg, level = '') {
-  logs.unshift({ t: new Date().toLocaleTimeString(), msg, level });
+  logs.unshift({ t: new Date().toLocaleTimeString(), at: Date.now(), msg: redact(msg), level });
   if (logs.length > 500) logs.length = 500;
+  renderLogs();
+  if (logPersist) { clearTimeout(logTimer); logTimer = setTimeout(saveLogs, 300); }
+}
+function saveLogs() { clearTimeout(logTimer); if (logPersist) chrome.storage.local.set({ [LOG_KEY]: logs.slice(0, LOG_KEEP) }); }
+// Đóng / tải lại side panel ngay sau một sự kiện: ghi luôn, không đợi hẹn giờ.
+addEventListener('pagehide', saveLogs);
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveLogs(); });
+async function loadLogs() {
+  const { [LOG_KEY]: old = [] } = await chrome.storage.local.get(LOG_KEY);
+  logs.push(...old.map((l) => ({ ...l, old: true })));
+  logPersist = true;
   renderLogs();
 }
 let toastTimer;
@@ -41,6 +58,8 @@ function toast(msg) {
   toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
 }
 
+// Mỗi cửa sổ có side panel riêng: chỉ một panel điều khiển (lib/leader.js).
+const leader = new Leader({ status: () => ({ busy: runner.running || !!wfRunner?.state?.running }) });
 const runner = new Runner({ log, onChange: () => { renderTasks(); renderRunState(); renderHistory(); renderSavedTasks(); if (wfRunner?.state?.running && wfRunner.refreshProgress()) renderWorkflowRun(); } });
 const wfRunner = new WorkflowRunner({ runner, log, onUpdate: () => { renderTasks(); renderWorkflowRun(); } });
 
@@ -715,7 +734,7 @@ document.querySelector('.tool-grid').addEventListener('click', (e) => {
 });
 // Trang Effects / Angles gửi task sang đây (hàng đợi + kết nối Flow nằm ở side panel).
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type !== 'afl:enqueueTasks') return false;
+  if (msg?.type !== 'afl:enqueueTasks' || !leader.is) return false;
   (async () => {
     let refId = null;
     const img = msg.image;
@@ -995,9 +1014,9 @@ $('pick-list').addEventListener('click', (e) => {
 
 // ---------- Nhật ký ----------
 function renderLogs() {
-  $('log-list').innerHTML = logs.map((l) => `<div class="${l.level}"><span class="t">${l.t}</span> ${esc(l.msg)}</div>`).join('') || '<p class="empty">Chưa có nhật ký.</p>';
+  $('log-list').innerHTML = logs.map((l) => `<div class="${l.level}${l.old ? ' old' : ''}" title="${l.at ? new Date(l.at).toLocaleString() : ''}"><span class="t">${l.t}</span> ${esc(l.msg)}</div>`).join('') || '<p class="empty">Chưa có nhật ký.</p>';
 }
-$('log-clear').addEventListener('click', () => { logs.length = 0; renderLogs(); });
+$('log-clear').addEventListener('click', () => { logs.length = 0; renderLogs(); if (logPersist) chrome.storage.local.remove(LOG_KEY); });
 
 // ---------- Cài đặt ----------
 function renderSettings() {
@@ -1121,7 +1140,7 @@ async function takeImageIntent() {
     showImagePrompt(it.dataUrl);
   }
 }
-chrome.runtime.onMessage.addListener((msg) => { if (msg?.type === 'afl:imageIntent') takeImageIntent(); });
+chrome.runtime.onMessage.addListener((msg) => { if (msg?.type === 'afl:imageIntent' && leader.is) takeImageIntent(); });
 
 // ---------- Workflow ----------
 let wfSub = 'templates';
@@ -1361,6 +1380,7 @@ $('wf-list').addEventListener('click', async (e) => {
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (!leader.is) return false; // panel không điều khiển: không trả lời, không chạy (panel điều khiển lo)
   if (msg?.type === 'afl:getWorkflowState') { sendResponse({ ok: true, state: wfRunner.state, queue: wfQueue }); return false; }
   // Dừng: huỷ cả các lượt đang chờ.
   if (msg?.type === 'afl:stopWorkflow') { wfQueue.length = 0; broadcastQueue(); wfRunner.cancel(); sendResponse({ ok: true }); return false; }
@@ -1414,6 +1434,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return false;
   }
   if (msg?.type === 'afl:reload') { location.reload(); return false; }
+  if (!leader.is) return false;
   if (msg?.type === 'afl:syncFlow') {
     syncFlowOptions().then((r) => sendResponse({ ok: true, ...r }), (e) => sendResponse({ ok: false, error: e.message }));
     return true;
@@ -1568,7 +1589,7 @@ $('btn-top-image').addEventListener('click', (e) => $('btn-image-prompt').dispat
 
 // ---------- Lệnh từ bảng nổi / phím tắt ----------
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg?.type !== 'afl:control') return;
+  if (msg?.type !== 'afl:control' || !leader.is) return;
   if (msg.action === 'togglePause') runner.togglePause();
   if (msg.action === 'stop') runner.stop();
   if (msg.action === 'toggleRun') {
@@ -1586,8 +1607,51 @@ function applyGenDefaults() {
   saveGen();
 }
 
+// Panel không điều khiển: lớp phủ thay cho giao diện, nút nhận quyền.
+function showFollower(reason) {
+  let el = $('follower');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'follower';
+    el.className = 'follower';
+    document.body.appendChild(el);
+  }
+  el.innerHTML = `<div class="box"><b>AutoFlow đang được điều khiển ở cửa sổ khác</b>
+    <p>${esc(reason || 'Chỉ một side panel chạy hàng đợi và workflow, để không chạy trùng hay ghi đè dữ liệu của nhau.')}</p>
+    <button class="btn primary" id="follower-take">Dùng ở cửa sổ này</button><p class="muted" id="follower-note"></p></div>`;
+  $('follower-take').addEventListener('click', async () => {
+    const cur = await leader.read();
+    if (cur?.busy && !confirm('Cửa sổ kia đang chạy. Chuyển sang đây: task đang tạo được nối lại, nhưng workflow đang chạy dở sẽ dừng. Tiếp tục?')) return;
+    $('follower-take').disabled = true;
+    $('follower-note').textContent = 'Đang chờ cửa sổ kia dừng và lưu hàng đợi…';
+    await leader.takeOver();
+    location.reload();
+  });
+}
+// Panel khác vừa nhận quyền: dừng mọi thứ nhưng giữ task đang tạo (panel kia nối lại), lưu ngay rồi báo đã bàn giao.
+leader.onLost = async (next) => {
+  logPersist = false;
+  mcp.stop();
+  telegram.stop();
+  await runner.detach();
+  await Promise.all(['settings', 'gen', 'history', 'library', 'refs', 'savedTasks'].map((k) => store.flush(k)));
+  await leader.handedOver(next.id);
+  log('Đã chuyển quyền điều khiển sang cửa sổ khác', 'warn');
+  showFollower('Đã chuyển sang cửa sổ khác. Hàng đợi và task đang tạo tiếp tục ở đó.');
+};
+// Panel điều khiển đã đóng: tải lại để nhận quyền (khôi phục task từ đầu).
+leader.onFree = () => location.reload();
+
 (async function init() {
   await store.load();
+  const leading = await leader.claim();
+  leader.watch();
+  if (!leading) {
+    renderGen(); renderTasks(); renderHistory(); renderLibrary(); renderLogs(); renderSettings(); renderWorkflows(); renderSavedTasks();
+    showFollower();
+    return;
+  }
+  await loadLogs();
   // Task "đang tạo" từ phiên trước: chưa gửi thì về hàng chờ; đã gửi thì nối lại với tab (không gửi lại).
   const rec = await runner.recover();
   if (rec.requeued) log(`${rec.requeued} task chưa kịp gửi ở phiên trước đã được đưa lại vào hàng chờ`, 'warn');

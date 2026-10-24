@@ -106,6 +106,8 @@ try {
   await P(`document.getElementById('run-start').click()`);
   const resumed = await waitTask('waiting task', (t) => t.status === 'done', 40000);
   check('bấm Tiếp tục: hàng đợi chạy tiếp task đang chờ', resumed?.status === 'done', resumed?.status);
+  const keptLog = await P(`[...document.querySelectorAll('#log-list > .old')].some(l=>l.textContent.includes('đã gửi')&&l.textContent.includes('SLOW panel reload recovery'))`);
+  check('nhật ký phiên trước vẫn còn sau khi tải lại side panel', keptLog === true, keptLog);
   // 2) Tải lại trang Flow khi task đang tạo: mất theo dõi → "Chưa rõ", không tự gửi lại.
   await genSlow('SLOW flow reload unknown');
   const frSent = await waitTask('SLOW flow reload unknown', (t) => t.status === 'running' && t.submittedAt > 0, 30000);
@@ -117,6 +119,30 @@ try {
   const frRow = await P(`(()=>{document.querySelector('[data-tab=queue]')?.click();const li=[...document.querySelectorAll('#task-list li.task')].find(l=>/SLOW flow reload unknown/.test(l.textContent));return li?{st:li.querySelector('.st').textContent,retry:!!li.querySelector('[data-act=retry]')}:null})()`);
   check('tải lại trang Flow khi đang tạo: task "Chưa rõ", không tự gửi lại, vẫn bấm Chạy lại được', !!frSent && frDone?.status === 'unknown' && frSubs === 0 && frRow?.st === 'Chưa rõ' && frRow.retry,
     { sent: frSent?.status, st: frDone?.status, err: frDone?.error, frSubs, frRow });
+  // Sao lưu không chứa token; khôi phục giữ token đang có, bỏ khoá lạ.
+  await P(`(async()=>{const {store}=await import('./lib/store.js');Object.assign(store.settings,{tgToken:'111111:SECRETSECRETSECRETSECRETSECRET12',mcpToken:'MCPSECRET',folder:'BeforeRestore'});await chrome.storage.local.set({aflSettings:store.settings});return 1})()`);
+  const setTab = await newTab(`chrome-extension://${extId}/sidepanel/settings.html`);
+  const setPage = await connect(setTab.webSocketDebuggerUrl);
+  await sleep(2500);
+  await setPage.ev(`document.getElementById('backup').click()`);
+  let bkFile = '';
+  for (let i = 0; i < 20 && !bkFile; i++) { await sleep(500); bkFile = files().find((f) => /autoflow-backup-.*.json$/.test(f)) || ''; }
+  const bk = bkFile ? JSON.parse(fs.readFileSync(path.join(dlDir, bkFile), 'utf8')) : null;
+  const bkText = bk ? JSON.stringify(bk) : '';
+  check('sao lưu không chứa token Telegram / MCP', !!bk && !!bk.data.aflSettings && !/SECRETSECRET|MCPSECRET/.test(bkText), { bkFile, keys: bk && Object.keys(bk.data.aflSettings || {}).filter((k) => /token/i.test(k)) });
+  if (bk) {
+    bk.data.aflSettings = { ...bk.data.aflSettings, folder: 'RestoredFolder', tgToken: 'EVIL' };
+    bk.data.evilKey = { x: 1 };
+    const rf = path.join(workDir, 'restore-test.json');
+    fs.writeFileSync(rf, JSON.stringify(bk));
+    await setPage.ev('window.confirm = () => true; 1');
+    const doc = await setPage.send('DOM.getDocument', {});
+    const q = await setPage.send('DOM.querySelector', { nodeId: doc.result.root.nodeId, selector: '#restore' });
+    await setPage.send('DOM.setFileInputFiles', { nodeId: q.result.nodeId, files: [rf] });
+    await sleep(3000);
+    const after = await setPage.ev(`(async()=>{const d=await chrome.storage.local.get(null);return {folder:d.aflSettings?.folder,tg:d.aflSettings?.tgToken,mcp:d.aflSettings?.mcpToken,evil:'evilKey' in d}})()`);
+    check('khôi phục: dữ liệu được khôi phục, giữ token trên máy, bỏ khoá lạ', after.folder === 'RestoredFolder' && after.tg === '111111:SECRETSECRETSECRETSECRETSECRET12' && after.mcp === 'MCPSECRET' && after.evil === false, after);
+  }
   console.log('LOG', JSON.stringify(await P(`[...document.querySelectorAll('#log-list > *')].slice(0,30).map(l=>l.textContent)`).catch((e) => e.message)));
 } catch (e) {
   fail++; console.log('ERROR', e.stack);

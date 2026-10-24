@@ -21,3 +21,23 @@ Findings while testing:
 - In the long e2e run, the hidden mock Flow tab had its timers throttled by Chrome to about one per minute, so the slow mock tile stalled at 35%. The tests now bring the Flow tab to the front first. This was a test-environment artifact, not an extension bug.
 - At panel reload during e2e, 2 workflow tasks from earlier tests (#34, #40) were still stored as `running` long after their workflows finished. The old code would have **resent** them. The new code marks them `unknown`. **Why they stay `running` is still open** (TODO in progress doc).
 - `flow.send` had no timeout, so a tab that never answers could stall the whole queue loop. Polls now use `sendWithin` (15 s; 5 s during recovery). A late answer counts as "still running", not "lost". There is no automated test for a non-answering tab (the mock can't block the extension's isolated-world handler): **UNVERIFIED**.
+
+## 2026-10-25 — M2: one controlling panel, persisted log, token-free backups (v0.19.0)
+
+| Suite | Level | Result |
+|---|---|---|
+| `tests/test-e2e.mjs` | mock | 114 pass / 0 fail |
+| `tests/test-recovery.mjs` | mock | 7 pass / 0 fail (adds: log kept across panel reload, backup has no tokens, restore keeps local tokens and drops unknown keys) |
+| `tests/test-panels.mjs` (new) | mock | 4 pass / 0 fail |
+| `tests/test-driver.mjs` | mock | 31 pass / 0 fail |
+| Real Chrome / real providers | — | **UNVERIFIED** |
+
+The 4 new panel cases:
+- A second panel shows the "controlled in another window" overlay.
+- A run-workflow broadcast runs once: Flow gets 1 submit.
+- Take over while a task is generating: the old panel yields, the new panel reattaches, the task completes, and Flow gets 1 submit.
+- Closing the controlling panel lets the remaining one take control.
+
+Notes:
+- One intermediate run showed 7 e2e failures. The cause was my error: two suites ran at the same time and shared mock port 8765. Run the suites one after another; a clean sequential run passes.
+- A sampler over a full e2e run found no task left `running` after it finished (the earlier #34/#40 observation was tasks really in progress). The only long-running task is the mock Flow video, which waits until timeout while the tab is hidden.

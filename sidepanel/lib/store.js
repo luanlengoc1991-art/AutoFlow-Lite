@@ -143,6 +143,12 @@ class Store {
     this.timers[name] = setTimeout(() => chrome.storage.local.set({ [KEYS[name]]: this[name] }), delay);
   }
 
+  // Ghi ngay (bỏ qua hẹn giờ gom thay đổi).
+  flush(name) {
+    clearTimeout(this.timers[name]);
+    return chrome.storage.local.set({ [KEYS[name]]: this[name] });
+  }
+
   selectors() {
     const raw = (this.settings.selectors || '').trim();
     if (!raw) return {};

@@ -10,9 +10,11 @@ Baseline: `0.17.0` @ `06aadc8` (2026-10-24).
 | M1 Audit | Feature gap matrix | DONE | `docs/FEATURE_GAP_MATRIX.md` (TobyFlow side is a shallow pass) |
 | M2 Stability | No auto-resend of submitted tasks with unknown outcome; reattach after panel reopen | DONE (mock) | v0.18.0. ADR-001, ADR-002. Files: `sidepanel/lib/runner.js`, `sidepanel/lib/flow.js`, `sidepanel/app.js`, `sidepanel/style.css`; tests `tests/test-recovery.mjs` + 2 cases in `tests/test-e2e.mjs`, mock `SLOW` mode. Real providers UNVERIFIED |
 | M2 Stability | Poll timeout so a silent tab can't stall the queue | DONE (no test for silent tab) | `flow.sendWithin` |
-| M2 Stability | Find why finished workflow tasks stay `running` in storage (seen in e2e: #34, #40) | TODO | Now harmless (become `unknown` on reopen) but means workflow/task state drift |
-| M2 Stability | Single active runner lease (two panels) | TODO | ADR-003 |
-| M2 Stability | Persisted, bounded log ring + error codes | TODO | |
+| M2 Stability | Find why finished workflow tasks stay `running` in storage (seen in e2e: #34, #40) | DONE — not a bug | A sampler over a full e2e run found no task stuck in `running` after finishing. #34/#40 were really running when the panel was reloaded. Only long-running task: mock Flow video #26 (see next row) |
+| M2 Stability | Mock Flow video task waits until timeout in long e2e runs | TODO (P3, test env) | Video result detection in the mock while the tab is hidden |
+| M2 Stability | Single active runner lease (two panels), takeover without losing tasks | DONE (mock) | v0.19.0, ADR-003, `sidepanel/lib/leader.js`, `tests/test-panels.mjs` |
+| M2 Stability | Persisted, bounded, redacted log | DONE (mock) | v0.19.0, ADR-004. Error codes still TODO |
+| M2 Security | Backup without tokens; restore validates keys, keeps local tokens | DONE (mock) | v0.19.0, `sidepanel/settings.js` |
 | M3 Media | IndexedDB media store, batched migration of refs/albums | TODO | Keep old data until the new store is verified |
 | M3 Media | Reference mode "None", named refs | TODO | |
 | M4 Workflow | Node checkpoint + resume from failed node after panel restart | TODO | |

@@ -25,6 +25,27 @@
 
 **Consequences.** There are fewer automatic retries after timeouts; that is the intended trade (credit safety over throughput). The MCP `autoflow_status` and Telegram `/status` output now include an `unknown` count.
 
-## ADR-003 — (planned) Single active runner lease
+## ADR-003 — One controlling side panel (lease) (2026-10-25)
 
-Two side panels (two windows) each create a `Runner`, and both can submit to the same provider tab. Planned fix: a lease in `chrome.storage.session` (`owner`, `heartbeat`), with stale-lease takeover after N seconds. Without the lease, a panel shows state read-only. Not implemented yet.
+**Context.** Each Chrome window has its own side panel, and every panel loads `app.js`. Commands sent with `chrome.runtime.sendMessage` reach all of them: run workflow from the editor, enqueue from Angles/Effects, keyboard shortcut. Two panels would each run the command, creating duplicate generations. Each panel also keeps its own in-memory queue and overwrites the other's `aflTasks`. Both would also poll Telegram.
+
+**Decision.** `sidepanel/lib/leader.js` holds a lease in `chrome.storage.session` (`aflLeader`: id, heartbeat every 4 s, `busy`).
+- The panel id is kept in `sessionStorage`, so a panel that reloads keeps control.
+- A panel without the lease shows an overlay and ignores commands. It does not recover tasks, start MCP or Telegram, or write the queue.
+- A lease older than 12 s counts as free: the leader was closed. A follower then reloads and claims it.
+- The lease is not released on `pagehide`, because reloading also fires it and would let another panel grab control mid-reload.
+- **"Dùng ở cửa sổ này" (take over):**
+  - The new panel writes the lease.
+  - The old panel stops MCP and Telegram, then `runner.detach()` waits for the loop to exit, so a half-sent task finishes saving its token. Running tasks are kept, not cancelled.
+  - The old panel flushes storage and writes `aflHandover`.
+  - The new panel waits for `aflHandover`, reloads, and `Runner.recover()` reattaches the running tasks.
+
+**Consequences.** A workflow that was mid-run in the old panel stops; the user is warned before taking over. Tasks already sent continue in the new panel.
+
+## ADR-004 — Persisted, redacted log (2026-10-25)
+
+The log is stored in `aflLogs` (latest 300 lines) and written only by the controlling panel. Writes are batched 300 ms and flushed on `pagehide`/hidden. Telegram bot tokens and `token=` query values are masked before the log is shown or stored. Older-session lines appear dimmed.
+
+## Security note — backups (2026-10-25)
+
+Settings → Sao lưu no longer exports `tgToken`/`mcpToken`. Restore accepts only `afl*` keys whose values are objects, and keeps the tokens already on the device.
