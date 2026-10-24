@@ -7,7 +7,11 @@ import { applyFlowDefaults, chatOptions, genOptions } from './defaults.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const FLOW_FIELDS = ['prompt', 'genType', 'videoMode', 'model', 'modelStrict', 'ratio', 'quantity', 'duration', 'resolution'];
-const FINAL = new Set(['done', 'error', 'cancelled']);
+// Hạn chờ một lần hỏi trạng thái trang (trang bình thường trả lời trong vài chục ms).
+const POLL_MS = 15000;
+// "unknown": đã gửi lên trang nhưng mất theo dõi / hết giờ chưa thấy kết quả. Không tự gửi lại
+// (có thể trang vẫn đang tạo, gửi lại sẽ tạo trùng và tốn lượt); người dùng tự quyết định chạy lại.
+const FINAL = new Set(['done', 'error', 'cancelled', 'unknown']);
 // Độ phân giải cần tải qua menu của Flow (upscale); "original" tải thẳng file gốc.
 const UPSCALE = { image: ['2k', '4k'], video: ['1080p', '4k'] };
 
@@ -132,7 +136,7 @@ export class Runner {
   async submitOne(task) {
     const provider = task.provider || 'flow';
     const isChat = PROVIDERS[provider].kind === 'chat';
-    Object.assign(task, { status: 'running', attempts: (task.attempts || 0) + 1, progress: null, error: '', retryAt: 0, startedAt: Date.now() });
+    Object.assign(task, { status: 'running', attempts: (task.attempts || 0) + 1, progress: null, error: '', retryAt: 0, startedAt: Date.now(), submittedAt: 0, tabId: 0, token: '' });
     this.changed();
     let tab;
     try {
@@ -174,7 +178,41 @@ export class Runner {
     if (!res?.ok) { this.fail(task, res?.error, res?.category); return; }
     for (const w of res.warnings || []) this.log(`#${task.index}: ${w}`, 'warn');
     this.log(`#${task.index} đã gửi (${PROVIDERS[provider].name}): ${task.prompt.slice(0, 60)}`);
+    // Đã gửi: lưu tab + token để mở lại side panel vẫn nối lại được, và để không gửi lại khi chưa rõ kết quả.
+    Object.assign(task, { submittedAt: Date.now(), tabId: tab.id, token: res.token });
     this.active.set(task.id, { token: res.token, tabId: tab.id, provider, startedAt: Date.now() });
+    this.changed();
+  }
+
+  // Mở lại side panel: task "đang tạo" của phiên trước. Chưa gửi → về hàng chờ. Đã gửi → hỏi lại tab
+  // theo token; trang còn theo dõi thì tiếp tục nhận kết quả, không thì đánh dấu "chưa rõ" (không gửi lại).
+  async recover() {
+    const out = { requeued: 0, reattached: 0, unknown: 0 };
+    for (const t of store.tasks.filter((x) => x.status === 'running')) {
+      if (!t.submittedAt || !t.token || !t.tabId) {
+        Object.assign(t, { status: 'pending', note: 'Bị gián đoạn trước khi gửi' });
+        out.requeued++;
+        continue;
+      }
+      // Trang không trả lời kịp (không phải "không còn job"): vẫn nối lại, lần hỏi sau sẽ rõ.
+      const r = await flow.sendWithin(t.tabId, { type: 'afl:poll', token: t.token }, 5000).catch((e) => (e.timeout ? { status: 'running' } : null));
+      if (r && r.status !== 'lost') {
+        this.active.set(t.id, { token: t.token, tabId: t.tabId, provider: t.provider || 'flow', startedAt: t.submittedAt });
+        t.note = 'Nối lại sau khi mở lại side panel';
+        out.reattached++;
+      } else {
+        this.markUnknown(t, 'Đã gửi nhưng mất theo dõi khi side panel đóng / trang tải lại');
+        out.unknown++;
+      }
+    }
+    if (out.requeued || out.unknown) store.save('tasks');
+    return out;
+  }
+
+  markUnknown(task, reason) {
+    Object.assign(task, { status: 'unknown', error: `${reason}. Không tự gửi lại để tránh tạo trùng — kiểm tra trang rồi bấm Chạy lại nếu cần.`, finishedAt: Date.now() });
+    this.log(`#${task.index}: ${reason}; không tự gửi lại (có thể trang vẫn đang tạo)`, 'warn');
+    this.settled(task);
   }
 
   async pollOne(id, a) {
@@ -182,13 +220,16 @@ export class Runner {
     if (!task) { this.active.delete(id); return; }
     let r;
     try {
-      r = await flow.send(a.tabId, { type: 'afl:poll', token: a.token });
-    } catch (_) {
-      r = { status: 'lost' };
+      r = await flow.sendWithin(a.tabId, { type: 'afl:poll', token: a.token }, POLL_MS);
+    } catch (e) {
+      // Hỏi quá hạn: coi như đang chạy (hết thời gian của task mới thành "chưa rõ"); trang không còn thì mất theo dõi.
+      if (e.timeout) this.log(`#${task.index}: trang ${PROVIDERS[a.provider]?.name || ''} chưa trả lời, hỏi lại sau`, 'warn');
+      r = e.timeout ? { status: 'running', progress: task.progress } : { status: 'lost' };
     }
     if (!r || r.status === 'lost') {
       this.active.delete(id);
-      this.fail(task, 'Mất theo dõi (trang đã tải lại hoặc bị đóng)', 'error');
+      this.markUnknown(task, 'Mất theo dõi (trang đã tải lại hoặc bị đóng)');
+      this.changed();
       return;
     }
     task.progress = r.progress;
@@ -196,10 +237,8 @@ export class Runner {
     if (r.status === 'running' && !timedOut) { this.onChange(); this.broadcast(); return; }
     this.active.delete(id);
     const hasOutput = r.results?.length || (task.chatMode === 'text' && r.text);
-    if (r.status === 'failed' || (timedOut && !hasOutput)) {
-      this.fail(task, r.error || 'Hết thời gian chờ kết quả', timedOut ? 'timeout' : r.category);
-      return;
-    }
+    if (r.status === 'failed') { this.fail(task, r.error, r.category); return; }
+    if (timedOut && !hasOutput) { this.markUnknown(task, 'Hết thời gian chờ mà chưa thấy kết quả'); this.changed(); return; }
     await this.finish(task, a, r);
   }
 

@@ -833,6 +833,35 @@ try {
   check('▶ node ChatGPT đã có ảnh + Prompt sửa: sửa tiếp trên ảnh mới nhất, không tạo lại', ge2.status === 'done' && ge2.count === 1 && ge2.urls.length === 2 && /chatedit/.test(ge2.urls[0]) && ge2.urls[1] === ge1.urls[0] && /change the sky to blue/.test(geSent?.text || '') && !/replace the title/.test(geSent?.text || '') && geSent?.attachments === 1, { ge2, geSent });
   await P(`(async()=>{const {store}=await import('./lib/store.js');store.settings.tgEnabled=false;store.save('settings',0);return 1})()`);
 
+  // ---- Khôi phục: task đã gửi không bao giờ bị gửi lại tự động ----
+  const genSlow = (text) => P(`(()=>{document.querySelector('[data-tab=gen]').click();document.querySelector('[data-provider=flow]').click();document.querySelector('#gen-type [data-type=image]').click();
+    const t=document.getElementById('gen-text');t.value=${JSON.stringify(text)};t.dispatchEvent(new Event('input'));document.getElementById('btn-generate').click();return 1})()`);
+  const taskBy = async (text) => (await tasks()).find((t) => t.prompt === text);
+  const waitTask = async (text, ok, ms = 60000) => { const t0 = Date.now(); let t; while (Date.now() - t0 < ms) { t = await taskBy(text); if (t && ok(t)) break; await sleep(1000); } return t; };
+  // Tab Flow ở nền lâu bị Chrome bóp hẹn giờ (~1 lần/phút) → trang giả lập gần như ngừng vẽ: đưa lên trước như lúc đầu.
+  await fetch(`http://127.0.0.1:${port}/json/activate/${flowTab.id}`);
+  await sleep(1500);
+  // 1) Tải lại side panel khi task đang tạo: nối lại theo token, nhận kết quả, Flow chỉ nhận 1 lượt.
+  const prBefore = (await flowPage.ev('window.mock.submits')).length;
+  await genSlow('SLOW panel reload recovery');
+  const prSent = await waitTask('SLOW panel reload recovery', (t) => t.status === 'running' && t.submittedAt > 0, 30000);
+  await panel.send('Page.reload');
+  await sleep(4000);
+  const prDone = await waitTask('SLOW panel reload recovery', (t) => ['done', 'error', 'unknown', 'cancelled'].includes(t.status), 60000);
+  const prSubs = (await flowPage.ev('window.mock.submits')).slice(prBefore).filter((s) => s.text === 'SLOW panel reload recovery').length;
+  check('tải lại side panel khi đang tạo: nối lại task, nhận kết quả, không gửi lại', !!prSent && prDone?.status === 'done' && prDone.results?.length > 0 && /Nối lại/.test(prDone.note || '') && prSubs === 1,
+    { sent: prSent?.status, st: prDone?.status, note: prDone?.note, err: prDone?.error, res: prDone?.results?.length, prSubs, open: (await tasks()).filter((t) => !['done', 'error', 'cancelled'].includes(t.status)).map((t) => [t.index, t.provider, t.status, (t.prompt || '').slice(0, 25)]), log: await P(`[...document.querySelectorAll('#log-list > *')].slice(0,12).map(l=>l.textContent)`), qty: prDone?.quantity, mockQty: await flowPage.ev('window.mock.qty'), pct: await flowPage.ev(`[...document.querySelectorAll('.tile .pct')].map(p=>p.textContent.slice(0,40))`), slowTiles: await flowPage.ev(`[...document.querySelectorAll('.tile')].filter(t=>/SLOW panel/.test(t.textContent)).map(t=>t.innerHTML.slice(0,120))`) });
+  // 2) Tải lại trang Flow khi task đang tạo: mất theo dõi → "Chưa rõ", không tự gửi lại.
+  await genSlow('SLOW flow reload unknown');
+  const frSent = await waitTask('SLOW flow reload unknown', (t) => t.status === 'running' && t.submittedAt > 0, 30000);
+  await flowPage.send('Page.reload');
+  for (let i = 0; i < 40 && !(await flowPage.ev('!!document.querySelector("[data-slate-editor]")').catch(() => false)); i++) await sleep(500);
+  const frDone = await waitTask('SLOW flow reload unknown', (t) => ['done', 'error', 'unknown', 'cancelled'].includes(t.status), 60000);
+  await sleep(15000);
+  const frSubs = (await flowPage.ev('window.mock.submits')).length;
+  const frRow = await P(`(()=>{document.querySelector('[data-tab=queue]')?.click();const li=[...document.querySelectorAll('#task-list li.task')].find(l=>/SLOW flow reload unknown/.test(l.textContent));return li?{st:li.querySelector('.st').textContent,retry:!!li.querySelector('[data-act=retry]')}:null})()`);
+  check('tải lại trang Flow khi đang tạo: task "Chưa rõ", không tự gửi lại, vẫn bấm Chạy lại được', !!frSent && frDone?.status === 'unknown' && frSubs === 0 && frRow?.st === 'Chưa rõ' && frRow.retry,
+    { sent: frSent?.status, st: frDone?.status, err: frDone?.error, frSubs, frRow });
   await P(`document.querySelector('[data-tab=queue]').click()`);
   await sleep(500);
   const shot = await panel.send('Page.captureScreenshot', { format: 'png' });

@@ -306,6 +306,7 @@ dialog.assistant:not([open]) { display: none; }
 .task.running .st { background: rgba(198, 244, 50, .15); color: var(--accent); }
 .task.done .st { background: rgba(123, 227, 164, .14); color: var(--ok); }
 .task.error .st { background: rgba(255, 107, 107, .14); color: var(--danger); }
+.task.unknown .st { background: rgba(250, 204, 21, .14); color: var(--warn); }
 .task.cancelled .st { color: var(--warn); }
 .task .body { min-width: 0; }
 .task .txt { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }

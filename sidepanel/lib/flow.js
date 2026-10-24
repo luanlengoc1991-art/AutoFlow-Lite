@@ -18,6 +18,14 @@ export function send(tabId, msg) {
   return chrome.tabs.sendMessage(tabId, { ...msg, selectors: store.selectors() });
 }
 
+// Như send nhưng có hạn chờ: tab treo / bị Chrome cho ngủ / đang chuyển trang có thể không bao giờ trả lời,
+// làm đứng cả vòng lặp hàng đợi. Hết hạn → lỗi có timeout: true (khác với "không có trang nhận").
+export function sendWithin(tabId, msg, ms) {
+  let timer;
+  const limit = new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error('Trang không trả lời'), { timeout: true })), ms); });
+  return Promise.race([send(tabId, msg), limit]).finally(() => clearTimeout(timer));
+}
+
 export async function ensureContent(tabId, provider = 'flow') {
   try {
     return await send(tabId, { type: 'afl:ping' });

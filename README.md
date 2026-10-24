@@ -107,6 +107,7 @@ AutoFlow không dùng API key hay server trung gian: nó điều khiển trực 
 ```
 node tests/test-driver.mjs <thư-mục-extension> <thư-mục-ảnh>
 node tests/test-e2e.mjs <thư-mục-extension> <thư-mục-làm-việc>
+node tests/test-recovery.mjs <thư-mục-extension> <thư-mục-làm-việc>   # đóng/mở lại side panel, tải lại trang khi đang tạo
 ```
 
 ## Giới hạn
@@ -115,5 +116,5 @@ node tests/test-e2e.mjs <thư-mục-extension> <thư-mục-làm-việc>
 - TobyFlow tải selector từ máy chủ của họ lúc chạy (không nằm trong extension), nên không đối chiếu được selector; AutoFlow dùng selector tự dò + **Selector tuỳ chỉnh** + **Chẩn đoán**.
 - Trên trang Flow, AutoFlow đọc mã lỗi API (`PUBLIC_ERROR_*`: hết credit, hoạt động bất thường…) để dừng/tạm dừng ngay cả khi giao diện không báo lỗi.
 - Không có: Max Speed qua API (Toby Bridge), xoá watermark, Auto CapCut Builder (cần ứng dụng desktop), template/thiết bị/thông báo đồng bộ qua server.
-- Side panel phải mở trong lúc chạy.
+- Side panel phải mở trong lúc chạy. Đóng rồi mở lại: task đã gửi được nối lại nếu tab provider còn mở; không nối lại được thì task thành **Chưa rõ** và không tự gửi lại (tránh tạo trùng, tốn lượt).
 - Hãy tuân thủ điều khoản sử dụng và hạn mức của Google, OpenAI, xAI.

@@ -251,7 +251,8 @@ $('#submit').addEventListener('click', () => {
     const isVideo = state.mode === 'VIDEO';
     tile.dataset.kind = isVideo ? 'video' : 'image';
     const timer = setInterval(() => {
-      p += 25;
+      // "SLOW": tạo chậm (~10s) để test đóng/mở lại side panel hoặc tải lại trang giữa chừng.
+      p += /SLOW/.test(text) ? 5 : 25;
       if (p < 100) { tile.querySelector('.pct').textContent = `${p}%`; return; }
       clearInterval(timer);
       const id = `m${Date.now()}${++seq}`;

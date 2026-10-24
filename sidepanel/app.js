@@ -23,7 +23,7 @@ const FALLBACK = {
   image: { models: ['Nano Banana Pro', 'Nano Banana 2', 'Imagen 4'], ratios: ['16:9', '9:16', '1:1', '4:3', '3:4'], quantities: [1, 2, 3, 4] },
   video: { models: ['Veo 3.1 - Fast', 'Veo 3.1 - Quality'], ratios: ['16:9', '9:16'], quantities: [1, 2, 3, 4], durations: ['4s', '6s', '8s'], resolutions: ['720p', '1080p'], modes: ['frames', 'ingredients'] }
 };
-const STATUS = { pending: 'Chờ', running: 'Đang tạo', done: 'Xong', error: 'Lỗi', cancelled: 'Huỷ' };
+const STATUS = { pending: 'Chờ', running: 'Đang tạo', done: 'Xong', error: 'Lỗi', cancelled: 'Huỷ', unknown: 'Chưa rõ' };
 
 // ---------- Log & toast ----------
 const logs = [];
@@ -502,7 +502,7 @@ function renderTasks() {
     <div class="stat run"><b>${run}</b><span>Đang tạo</span></div>
     <div class="stat ok"><b>${done}</b><span>Xong</span></div>
     <div class="stat err"><b>${err}</b><span>Lỗi</span></div>`;
-  const finished = done + err + c('cancelled');
+  const finished = done + err + c('cancelled') + c('unknown');
   $('task-progress').style.width = tasks.length ? `${(finished / tasks.length) * 100}%` : '0';
   const badge = $('tasks-badge');
   badge.hidden = !(run + pend);
@@ -527,7 +527,7 @@ function renderTasks() {
       </div>
       <div class="acts">
         ${t.status === 'pending' ? `<button class="icon-btn small" data-act="up" title="Đưa lên đầu">${icon('up')}</button>` : ''}
-        ${['error', 'cancelled', 'done'].includes(t.status) ? `<button class="icon-btn small" data-act="retry" title="Chạy lại">${icon('retry')}</button>` : ''}
+        ${['error', 'cancelled', 'done', 'unknown'].includes(t.status) ? `<button class="icon-btn small" data-act="retry" title="${t.status === 'unknown' ? 'Gửi lại (kiểm tra trang trước: có thể đã tạo rồi)' : 'Chạy lại'}">${icon('retry')}</button>` : ''}
         <button class="icon-btn small" data-act="copy" title="Sao chép prompt">${icon('copy')}</button>
         ${t.status !== 'running' ? `<button class="icon-btn small" data-act="rm" title="Xoá">${icon('trash')}</button>` : ''}
       </div>
@@ -544,7 +544,7 @@ $('task-list').addEventListener('click', (e) => {
   const t = store.tasks[i];
   if (!t) return;
   if (btn.dataset.act === 'rm') { store.tasks.splice(i, 1); store.gcRefs(); }
-  if (btn.dataset.act === 'retry') Object.assign(t, { status: 'pending', attempts: 0, error: '', note: '', retryAt: 0, results: [] });
+  if (btn.dataset.act === 'retry') Object.assign(t, { status: 'pending', attempts: 0, error: '', note: '', retryAt: 0, results: [], submittedAt: 0, token: '' });
   if (btn.dataset.act === 'up') { store.tasks.splice(i, 1); const first = store.tasks.findIndex((x) => x.status === 'pending'); store.tasks.splice(first < 0 ? store.tasks.length : first, 0, t); }
   if (btn.dataset.act === 'copy') { navigator.clipboard.writeText(t.prompt); toast('Đã sao chép prompt'); }
   store.save('tasks');
@@ -1442,7 +1442,7 @@ const mcpHandlers = {
     const c = (st) => store.tasks.filter((t) => t.status === st).length;
     const acc = await checkAll().catch(() => []);
     return {
-      queue: { running: c('running'), pending: c('pending'), done: c('done'), error: c('error'), active: runner.running, paused: runner.paused },
+      queue: { running: c('running'), pending: c('pending'), done: c('done'), error: c('error'), unknown: c('unknown'), active: runner.running, paused: runner.paused },
       accounts: Object.fromEntries(acc.map((a) => [a.provider, a.state])),
       workflows: store.workflows.filter((w) => !w.isTemplate).length,
       workflow_running: wfRunner.state?.running ? wfRunner.state.name : null
@@ -1512,7 +1512,7 @@ const telegram = new TelegramBot({
     if (cmd === '/start' || cmd === '/help') return 'Lệnh AutoFlow:\n/gen <prompt> – tạo ảnh bằng Google Flow\n/video <prompt> – tạo video\n/status – trạng thái hàng đợi\n/stop – dừng hàng đợi';
     if (cmd === '/status') {
       const c = (st) => store.tasks.filter((t) => t.status === st).length;
-      return `Hàng đợi: ${c('running')} đang tạo, ${c('pending')} chờ, ${c('done')} xong, ${c('error')} lỗi${runner.paused ? ' (tạm dừng)' : ''}`;
+      return `Hàng đợi: ${c('running')} đang tạo, ${c('pending')} chờ, ${c('done')} xong, ${c('error')} lỗi${c('unknown') ? `, ${c('unknown')} chưa rõ` : ''}${runner.paused ? ' (tạm dừng)' : ''}`;
     }
     if (cmd === '/stop') { runner.stop(); return 'Đã dừng hàng đợi'; }
     if (cmd === '/gen' || cmd === '/video') {
@@ -1588,10 +1588,16 @@ function applyGenDefaults() {
 
 (async function init() {
   await store.load();
-  // Task "đang tạo" từ phiên trước bị gián đoạn: đưa về hàng chờ.
-  let resumed = 0;
-  for (const t of store.tasks) if (t.status === 'running') { t.status = 'pending'; t.note = 'Bị gián đoạn ở phiên trước'; resumed++; }
-  if (resumed) { store.save('tasks'); log(`${resumed} task bị gián đoạn đã được đưa lại vào hàng chờ`, 'warn'); }
+  // Task "đang tạo" từ phiên trước: chưa gửi thì về hàng chờ; đã gửi thì nối lại với tab (không gửi lại).
+  const rec = await runner.recover();
+  if (rec.requeued) log(`${rec.requeued} task chưa kịp gửi ở phiên trước đã được đưa lại vào hàng chờ`, 'warn');
+  if (rec.unknown) log(`${rec.unknown} task đã gửi nhưng không còn theo dõi được: đánh dấu "Chưa rõ", không tự gửi lại`, 'warn');
+  if (rec.reattached) {
+    log(`Đã nối lại ${rec.reattached} task đang tạo từ phiên trước`, 'ok');
+    // Chỉ theo dõi tiếp các task đã gửi; hàng chờ còn lại tạm dừng tới khi người dùng bấm Tiếp tục.
+    runner.start();
+    if (store.tasks.some((t) => t.status === 'pending')) { runner.pause(); runner.setMessage('Đã nối lại task đang tạo; hàng đợi tạm dừng — bấm Tiếp tục để chạy tiếp', 'warn'); }
+  }
   applyGenDefaults();
   renderGen(); renderTasks(); renderRunState(); renderHistory(); renderLibrary(); renderLogs(); renderSettings(); renderFlowInfo(); renderWorkflows(); renderSavedTasks();
   mcp.start();
