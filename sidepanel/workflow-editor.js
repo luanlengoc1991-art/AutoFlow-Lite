@@ -411,12 +411,9 @@ function statusOf(n) {
   return st || null;
 }
 let runReset = false;
-// Đang chạy: các node của lần chạy + node đưa dữ liệu vào chúng (dùng lại kết quả cũ). Node khác đứng im, mờ đi.
-function runRelated() {
-  if (!runState?.running || runState.workflowId !== wf.id || runReset) return null;
-  const set = new Set(Object.keys(runState.nodes || {}));
-  for (const e of wf.edges) if (runState.nodes[e.to.node]) set.add(e.from.node);
-  return set;
+// Đang chạy workflow này: các node của lần chạy (dây dẫn vào chúng là đường chạy).
+function runNodes() {
+  return runState?.running && runState.workflowId === wf.id && !runReset ? runState.nodes || {} : null;
 }
 
 function buildNode(n) {
@@ -456,8 +453,6 @@ function applyStatus(el, n) {
   el.classList.toggle('running', st?.status === 'running');
   el.classList.toggle('done', st?.status === 'done');
   el.classList.toggle('error', st?.status === 'error');
-  const related = runRelated();
-  el.classList.toggle('run-idle', !!related && !related.has(n.id) && !queuedIds.has(n.id) && n.type !== 'note');
   el.querySelector(':scope > .status')?.remove();
   el.querySelector(':scope > .progress-pill')?.remove();
   el.querySelector('.nb-media > .spinner')?.remove();
@@ -577,7 +572,7 @@ const WIRE_DIM = { text: '#50476a', image: '#303961', video: '#4a3166', frame: '
 const WIRE_ACTIVE = { text: '#9c82e5', image: '#6f8bf7', video: '#b07cf5', frame: '#3cd39f', any: '#bdbdbd' };
 function renderEdges() {
   let html = '';
-  const related = runRelated();
+  const running = runNodes();
   for (const e of wf.edges) {
     const a = portCenter(e.from.node, 'out', e.from.port), b = portCenter(e.to.node, 'in', e.to.port);
     if (!a || !b) continue;
@@ -591,12 +586,11 @@ function renderEdges() {
     // Dây mang nhiều mục (List, nhiều kết quả): nét đứt.
     const count = fromNode.type === 'list' ? (fromNode.data.items || []).length : (statusOf(fromNode) || (runReset ? null : wf.results?.[fromNode.id]))?.count || 0;
     // Như TobyFlow: dây mờ theo kiểu dữ liệu; đang truyền / nối với node đang chọn thì sáng, dày và có vạch trắng chạy.
-    // Đang chạy: dây dẫn vào node của lần chạy sáng lên (đường chạy), dây khác mờ và đứng im.
-    const route = !!related && !!runState.nodes[e.to.node];
-    const idle = !!related && !route;
-    const active = !idle && (flowing || route || selection.has(e.from.node) || selection.has(e.to.node));
-    const stroke = active || selectedEdge === e.id ? (WIRE_ACTIVE[type] || color) : (WIRE_DIM[type] || color);
-    html += `<path class="wire ${flowing ? 'flow' : ''} ${active ? 'active' : ''} ${idle ? 'idle' : ''} ${count > 1 ? 'multi' : ''} ${selectedEdge === e.id ? 'selected' : ''}" d="${d}" stroke="${stroke}" style="color:${stroke}"/>${active ? `<path class="wire-overlay" d="${d}"/>` : ''}<path class="hit" data-edge="${e.id}" d="${d}"/>`;
+    // Đang chạy: chỉ dây dẫn vào node của lần chạy là nét đứt màu chạy theo; node và dây khác giữ nguyên.
+    const route = !!running?.[e.to.node];
+    const active = !route && (flowing || selection.has(e.from.node) || selection.has(e.to.node));
+    const stroke = active || route || selectedEdge === e.id ? (WIRE_ACTIVE[type] || color) : (WIRE_DIM[type] || color);
+    html += `<path class="wire ${flowing ? 'flow' : ''} ${active ? 'active' : ''} ${route ? 'route' : ''} ${count > 1 ? 'multi' : ''} ${selectedEdge === e.id ? 'selected' : ''}" d="${d}" stroke="${stroke}" style="color:${stroke}"/>${active ? `<path class="wire-overlay" d="${d}"/>` : ''}<path class="hit" data-edge="${e.id}" d="${d}"/>`;
   }
   if (drag?.kind === 'connect' && drag.to) html += `<path class="temp" d="${drag.reverse ? curve(drag.to, drag.from) : curve(drag.from, drag.to)}" stroke="${PORT_TYPES[drag.type].color}"/>`;
   html += mentionLines();
@@ -1196,6 +1190,9 @@ nodesEl.addEventListener('click', (e) => {
 });
 
 // Kéo thả file vào node Image/Video hoặc canvas.
+// Giữ chuột trên ảnh/video trong node rồi kéo: trình duyệt tự kéo file ảnh, thả ra canvas thành node mới
+// (trông như tự nhân bản). Chặn để kéo ở đâu trên node cũng là di chuyển node.
+nodesEl.addEventListener('dragstart', (e) => { if (!e.target.closest?.('textarea, input')) e.preventDefault(); });
 canvas.addEventListener('dragover', (e) => { e.preventDefault(); e.target.closest('.nb-media[data-drop]')?.classList.add('drop'); });
 canvas.addEventListener('dragleave', (e) => e.target.closest('.nb-media[data-drop]')?.classList.remove('drop'));
 canvas.addEventListener('drop', async (e) => {

@@ -577,9 +577,12 @@ try {
   const q2 = await adEd.ev(`chrome.runtime.sendMessage({type:'afl:runWorkflow', id:'wfad', only:[${JSON.stringify(editIds.gen)}]})`);
   await sleep(600);
   const qPill = await adEd.ev(`document.querySelector('.node[data-node=${editIds.gen}] .queued-pill')?.textContent || ''`);
-  // Đang chạy g1: node không liên quan mờ + đứng im, dây vào g1 sáng (đường chạy), dây khác mờ.
-  const idleUi = await adEd.ev(`(()=>{const c=(id)=>document.querySelector('.node[data-node="'+id+'"]')?.classList.contains('run-idle');return {g1:c('g1'),v1:c('v1'),queued:c(${JSON.stringify(editIds.gen)}),idleWires:document.querySelectorAll('#edges path.wire.idle').length,routeWires:document.querySelectorAll('#edges path.wire.active:not(.idle)').length}})()`);
-  check('đang chạy: node không liên quan mờ và đứng im, đường chạy sáng', idleUi.g1 === false && idleUi.v1 === true && idleUi.queued === false && idleUi.idleWires > 0 && idleUi.routeWires > 0, idleUi);
+  // Đang chạy g1: chỉ dây dẫn vào g1 là nét đứt màu (không vạch trắng phủ), node không bị làm mờ.
+  const routeUi = await adEd.ev(`(()=>{const r=[...document.querySelectorAll('#edges path.wire.route')];return {route:r.length,overlay:r.filter(p=>p.nextElementSibling?.classList.contains('wire-overlay')).length,idleNodes:document.querySelectorAll('.node.run-idle').length,idleWires:document.querySelectorAll('#edges path.wire.idle').length}})()`);
+  check('đang chạy: dây vào node đang chạy là nét đứt màu, node giữ nguyên', routeUi.route > 0 && routeUi.overlay === 0 && routeUi.idleNodes === 0 && routeUi.idleWires === 0, routeUi);
+  // Giữ chuột trên ảnh trong node rồi kéo: không cho trình duyệt kéo file ảnh (thả ra canvas sẽ thành node mới).
+  const imgDrag = await adEd.ev(`(()=>{const img=document.querySelector('.node[data-node=g1] .nb-media img');if(!img)return {img:false};const ev=new DragEvent('dragstart',{bubbles:true,cancelable:true});img.dispatchEvent(ev);return {img:true,blocked:ev.defaultPrevented}})()`);
+  check('kéo ảnh trong node không kéo file ảnh ra (không tự nhân bản node)', imgDrag.img && imgDrag.blocked, imgDrag);
   for (let i = 0; i < 60; i++) { await sleep(1500); const subsNow = (await flowPage.ev('window.mock.submits')).length - beforeQ; adState = await P(`document.getElementById('wf-run').innerText`); if (subsNow >= 3 && /đã kết thúc/.test(adState)) break; }
   const qSubs = (await flowPage.ev('window.mock.submits')).slice(beforeQ);
   check('hàng đợi: node bấm chạy khi đang chạy được xếp hàng, hiện "Đang chờ", rồi tự chạy', q1?.ok && !q1.queued && q2?.ok && q2.queued === 1 && /Đang chờ/.test(qPill) && qSubs.length === 3 && qSubs[2].text === 'Change the sneaker to red', { q1, q2, qPill, qSubs: qSubs.map((s) => s.text) });
