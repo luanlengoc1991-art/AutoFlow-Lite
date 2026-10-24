@@ -20,6 +20,9 @@
       // vì thẻ HTML khác nhau giữa bản đăng nhập và chưa đăng nhập.
       response: ['[data-message-role="assistant"]', '[data-turn="assistant"]', '[data-testid^="conversation-turn-"]:has([data-message-author-role="assistant"])', '[data-message-author-role="assistant"]'],
       responseText: ['[data-assistant-markdown-root]', '.markdown', '[data-message-author-role="assistant"]'],
+      userTurn: ['[data-message-role="user"]', '[data-turn="user"]', '[data-message-author-role="user"]'],
+      // Lượt trả lời đã xong hẳn (ảnh cuối, không còn ảnh nền đang vẽ): thuộc tính hoặc thanh nút copy/like.
+      complete: ['[data-message-complete]', '[data-testid="copy-turn-action-button"]', '[data-testid="good-response-turn-action-button"]', 'button[aria-label*="Good response" i]', 'button[aria-label*="Phản hồi tốt" i]'],
       attach: ['button[aria-label*="Attach" i]', 'button[aria-label*="Add photos" i]', 'button[aria-label*="Upload" i]', '[data-testid="composer-plus-btn"]'],
       modelPicker: ['[data-testid="model-switcher-dropdown-button"]', 'button[aria-label*="Model selector" i]', 'button[aria-label*="model" i][aria-haspopup]'],
       convMenu: ['[data-testid="conversation-options-button"]', 'button[aria-label*="Open conversation options" i]'],
@@ -32,6 +35,7 @@
       stop: ['button.send-button.stop', 'button[aria-label*="Stop" i]', 'button[aria-label*="Dừng"]'],
       response: ['model-response'],
       responseText: ['message-content .markdown', 'message-content', '.model-response-text'],
+      userTurn: ['user-query'],
       attach: ['button[aria-label*="upload" i]', 'button[aria-label*="tải lên" i]', 'uploader button', 'button[aria-label*="Add files" i]'],
       modelPicker: ['[data-test-id="bard-mode-menu-button"]', 'bard-mode-switcher button', 'button[aria-label*="mode picker" i]', 'button[aria-label*="model" i][aria-haspopup]'],
       convMenu: ['.conversation.selected [data-test-id="actions-menu-button"]', '[data-test-id="conversation-actions-button"]', 'button[aria-label*="conversation actions" i]'],
@@ -57,6 +61,7 @@
       stop: ['button[aria-label*="Stop" i]', '[data-is-streaming="true"]'],
       response: ['[data-is-streaming]', 'div.font-claude-response', '[data-testid="assistant-message"]'],
       responseText: ['.standard-markdown', '.font-claude-response', '.prose'],
+      userTurn: ['[data-testid="user-message"]'],
       attach: ['button[aria-label*="Add files" i]', 'button[aria-label*="Attach" i]', '[data-testid="input-menu-plus"]', 'button[aria-label*="Upload" i]'],
       modelPicker: ['[data-testid="model-selector-dropdown"]', 'button[aria-label*="model" i][aria-haspopup]'],
       convMenu: ['[data-testid="chat-menu-trigger"]', 'button[aria-label*="conversation options" i]'],
@@ -246,6 +251,47 @@
     });
   }
 
+  // Ảnh kết quả phải nằm sau tin nhắn vừa gửi: ảnh đính kèm (vd. ảnh cần sửa) hiện lại trong lượt
+  // của người dùng và không được nhận nhầm là ảnh trả về.
+  function lastUserTurn() {
+    let last = null;
+    for (const sel of cfg.userTurn || []) {
+      try {
+        for (const el of document.querySelectorAll(sel)) if (!last || last.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) last = el;
+      } catch (_) { /* selector sai */ }
+    }
+    return last && (last.closest('article, li, [data-testid^="conversation-turn-"]') || last);
+  }
+  // Khoá của một file ảnh: cùng một file có thể hiện với URL khác nhau (tham số ký, kích thước).
+  function imgKey(src) {
+    try { const u = new URL(src, location.href); return u.searchParams.get('id') || u.searchParams.get('file_id') || `${u.host}${u.pathname}`; } catch (_) { return src; }
+  }
+  // Ảnh đầu vào của lượt này: ảnh trong tin nhắn vừa gửi và ảnh nằm trước khung trả lời.
+  // ChatGPT dùng lại đúng file đó làm nền mờ trong lúc vẽ ảnh sửa, nên không bao giờ là kết quả.
+  function noteInputImages(job, el) {
+    const turn = lastUserTurn();
+    for (const i of document.querySelectorAll('img')) {
+      const src = i.currentSrc || i.src || '';
+      if (!src || job.beforeImgs.has(src) || i.closest('nav, aside, header, form')) continue;
+      const inUser = turn && turn.contains(i);
+      const beforeEl = el && !el.contains(i) && (el.compareDocumentPosition(i) & Node.DOCUMENT_POSITION_PRECEDING);
+      if (inUser || beforeEl) job.inputKeys.add(imgKey(src));
+    }
+  }
+  function turnComplete(el) {
+    if (!el || !cfg.complete?.length) return null;
+    const scope = el.closest('article, li, [data-testid^="conversation-turn-"]') || el;
+    return cfg.complete.some((sel) => {
+      try { return scope.matches(sel) || !!scope.querySelector(sel) || !!scope.nextElementSibling?.querySelector?.(sel); } catch (_) { return false; }
+    });
+  }
+  function afterUserTurn(src) {
+    const turn = lastUserTurn();
+    if (!turn) return true;
+    return [...document.querySelectorAll('img')].some((i) => (i.currentSrc || i.src) === src && !turn.contains(i)
+      && !!(turn.compareDocumentPosition(i) & Node.DOCUMENT_POSITION_FOLLOWING));
+  }
+
   // Mọi ảnh lớn mới trong hội thoại, kể cả bản xem trước còn mờ (để ước tính %).
   function previewImages() {
     return [...document.querySelectorAll('img')].filter((img) => {
@@ -319,7 +365,7 @@
     const token = `chat-${Date.now()}-${++jobSeq}`;
     jobs.set(token, {
       token, before: new Set(responses()), prompt: compact(task.prompt), wantImage: task.chatMode !== 'text', wantVideo: !!task.wantVideo,
-      startedAt: Date.now(), sig: '', lastChange: Date.now(), beforeImgs: new Set(task.chatMode !== 'text' ? pageImages() : []),
+      startedAt: Date.now(), sig: '', lastChange: Date.now(), beforeImgs: new Set(task.chatMode !== 'text' ? pageImages() : []), inputKeys: new Set(),
       beforeLines: new Set(convLines()), promptLines: new Set(String(task.prompt).split('\n').map((l) => compact(l)).filter(Boolean))
     });
     const btn = await waitFor(() => { const b = first(cfg.send); return b && !isDisabled(b) ? b : null; }, 15000, 200);
@@ -378,6 +424,8 @@
     let images = el ? (job.wantVideo && videos.length ? [] : responseImages(el)) : [];
     // Dự phòng: ảnh mới xuất hiện trong khung hội thoại kể từ lúc gửi (ảnh nằm ngoài phần tử câu trả lời).
     if (job.wantImage && !images.length && !(job.wantVideo && videos.length)) images = pageImages().filter((src) => !job.beforeImgs.has(src));
+    if (job.wantImage) noteInputImages(job, el);
+    images = images.filter((src) => afterUserTurn(src) && !job.inputKeys.has(imgKey(src)));
     const sig = `${text.length}|${images.join(',')}|${videos.join(',')}`;
     if (sig !== job.sig) { job.sig = sig; job.lastChange = now; }
     const stable = now - job.lastChange;
@@ -419,7 +467,10 @@
     if (streaming && !(job.wantImage && results.length && stable >= 8000)) return { status: 'running', ...base };
     if (job.wantImage) {
       // Chờ video thì ảnh xem trước chưa phải kết quả cuối (trừ khi đứng yên 60s).
-      if (results.length && stable >= 2500 && (!job.wantVideo || videos.length || stable >= 60000)) return { status: 'done', ...base };
+      // Ảnh còn đang vẽ (lượt trả lời chưa xong) chưa phải kết quả; không nhận ra dấu hiệu xong thì chờ ảnh đứng yên 60s.
+      const complete = turnComplete(el);
+      const settled = complete === null || complete || stable >= 60000;
+      if (results.length && stable >= 2500 && settled && (!job.wantVideo || videos.length || stable >= 60000)) return { status: 'done', ...base };
       // Lời từ chối / hết lượt rõ ràng: báo ngay, không chờ ảnh.
       const quick = !results.length && text && stable >= 4000 ? classify(text) : null;
       if (quick) return { status: 'failed', ...base, error: text.slice(0, 300), category: quick };

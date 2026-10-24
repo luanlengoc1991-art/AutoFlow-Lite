@@ -415,7 +415,7 @@ export class WorkflowRunner {
         // Prompt sửa kết quả (cổng "edit"): áp lần lượt lên ảnh/video mới nhất của chính node này.
         const edits = (inputs.edit || []).filter((i) => i.kind === 'text').map((i) => i.text.trim()).filter(Boolean);
         // Chỉ sửa (bấm ▶ trên Prompt sửa): dùng ảnh/video đang có của node, không tạo lại bản gốc.
-        const base = ctx.editOnly?.has(node.id) ? ctx.saved(node.id)?.media || [] : [];
+        const base = ctx.editOnly?.has(node.id) ? ctx.saved(node.id, true)?.media || [] : [];
         let media, history = [];
         if (base.length && edits.length) {
           media = [base[0]];
@@ -550,7 +550,8 @@ export class WorkflowRunner {
     const cached = this.cache.get(workflow.id) || {};
     // Kết quả đã lưu trong workflow (còn sau khi đóng side panel): node tạo ảnh/video chỉ nối ra cổng
     // "media" dùng lại được, để chạy riêng node phía sau không tạo lại ảnh của node phía trước.
-    const saved = (id) => {
+    // history: lấy cả các bản cũ (để lật xem); mặc định chỉ thành phẩm của lần chạy cuối (bản sửa mới nhất).
+    const saved = (id, history = false) => {
       const n = byId.get(id), r = workflow.results?.[id];
       if (!n || r?.status !== 'done') return null;
       // Câu trả lời AI đã có (AI Agent / Assistant): dùng lại, không gọi AI lần nữa (bỏ qua nếu bị cắt ngắn khi lưu).
@@ -561,7 +562,8 @@ export class WorkflowRunner {
       }
       if (!GEN_TYPES.has(n.type)) return null;
       if (workflow.edges.some((e) => e.from.node === id && e.from.port !== 'media')) return null;
-      const media = (r.preview || []).filter((p) => p.kind !== 'text' && p.url);
+      const all = (r.preview || []).filter((p) => p.kind !== 'text' && p.url);
+      const media = history || !(r.count > 0) ? all : all.slice(0, r.count);
       return media.length ? { media: media.map((p) => ({ ...p })) } : null;
     };
     let runSet = null;
@@ -569,6 +571,9 @@ export class WorkflowRunner {
     if (opts.only?.length) {
       runSet = new Set(opts.only);
       for (const e of workflow.edges) if (opts.only.includes(e.from.node) && e.to.port === 'edit' && !opts.only.includes(e.to.node) && saved(e.to.node)) editOnly.add(e.to.node);
+      // Bấm ▶ trên chính node đã có ảnh/video và có Prompt sửa nối vào: sửa tiếp trên bản mới nhất,
+      // không tạo lại từ đầu (muốn tạo lại thì Reset node trước).
+      for (const e of workflow.edges) if (opts.only.includes(e.to.node) && e.to.port === 'edit' && GEN_TYPES.has(byId.get(e.to.node)?.type) && saved(e.to.node)) editOnly.add(e.to.node);
       // Node phía trước: dùng kết quả lần trước nếu có, nếu không thì chạy lại.
       const filledList = (id) => byId.get(id)?.type === 'list' && byId.get(id).data.items?.length > 0;
       for (const id of ancestorsOf(opts.only, deps, filledList)) if (!runSet.has(id) && !cached[id] && !saved(id)) runSet.add(id);
@@ -610,7 +615,7 @@ export class WorkflowRunner {
         const st = this.state.nodes[node.id];
         const inputs = {};
         let hasUpstream = false, upstreamItems = 0, skippedUp = false;
-        for (const e of workflow.edges.filter((x) => x.to.node === node.id && (!editOnly.has(node.id) || x.to.port !== 'edit' || opts.only.includes(x.from.node)))) {
+        for (const e of workflow.edges.filter((x) => x.to.node === node.id && (!editOnly.has(node.id) || x.to.port !== 'edit' || opts.only.includes(node.id) || opts.only.includes(x.from.node)))) {
           hasUpstream = true;
           const items = ctx.outputs.get(e.from.node)?.[e.from.port] || [];
           upstreamItems += items.length;
@@ -638,6 +643,15 @@ export class WorkflowRunner {
             Object.assign(st, { status: 'skipped', error: e.message });
             ctx.skipped.add(node.id);
             this.log(`Workflow: node "${st.title}": ${e.message}`, 'warn');
+            this.onUpdate();
+            continue;
+          }
+          // Sửa không thành công: giữ nguyên ảnh/video đang có của node để sửa lại tiếp.
+          const prev = editOnly.has(node.id) && workflow.results?.[node.id];
+          if (prev?.status === 'done') {
+            Object.assign(st, { status: 'done', count: prev.count, preview: prev.preview, info: prev.info, finishedAt: Date.now() });
+            ctx.outputs.set(node.id, saved(node.id) || {});
+            this.log(`Workflow: node "${st.title}" sửa không thành công (${e.message}), giữ kết quả cũ`, 'warn');
             this.onUpdate();
             continue;
           }

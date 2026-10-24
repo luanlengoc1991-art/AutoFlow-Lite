@@ -810,6 +810,21 @@ try {
   // Chat mới tải lại trang chat giả lập (danh sách tin đã gửi bị đặt lại): đọc tin cuối.
   const nodeGptSent = chatPage ? (await chatPage.ev('window.chatMock.sent')).slice(-1).map((x) => x.text) : [];
   check('Node ChatGPT: tỷ lệ + tiền tố riêng của node', gptRes?.GPT?.s === 'done' && /^Generate an image: a green pear on a table/.test(nodeGptSent[0] || '') && /Aspect ratio: 1:1/.test(nodeGptSent[0] || ''), { gptRes, nodeGptSent });
+  // ChatGPT sửa ảnh: trang hiện ảnh gốc làm nền trong lúc vẽ → không được nhận ảnh gốc làm kết quả.
+  const gptPreview = (name) => P(`(async()=>{const {aflWorkflows=[]}=await chrome.storage.local.get('aflWorkflows');const w=aflWorkflows.find(x=>x.name===${JSON.stringify(name)});const g=w.nodes.find(n=>n.data.name==='GE');
+    return {id:w.id,g:g.id,status:w.results?.[g.id]?.status,count:w.results?.[g.id]?.count,urls:(w.results?.[g.id]?.preview||[]).map(p=>p.url)}})()`);
+  const geRes = await runBuilt('GPT edit', `(C,E,png)=>{const im=C('image',{name:'I',media:[{kind:'image',dataUrl:png,mime:'image/png'}]});const g=C('chatgpt',{name:'GE',prompt:'replace the title',prefix:'always'});return {nodes:[im,g],edges:[E(im,'media',g,'image_ref')]}}`, 120000);
+  const ge1 = await gptPreview('GPT edit');
+  check('ChatGPT sửa ảnh: nhận ảnh mới, không nhận ảnh gốc đang làm nền', geRes?.GE?.s === 'done' && ge1.urls.length === 1 && /chatedit/.test(ge1.urls[0]), { geRes, ge1 });
+  // ▶ trên chính node đã có ảnh + Prompt sửa nối vào: chỉ sửa tiếp trên ảnh mới nhất, không tạo lại từ đầu.
+  await P(`(async()=>{const {store}=await import('./lib/store.js');const {createNode,nid}=await import('./lib/workflow-nodes.js');const d=await chrome.storage.local.get('aflWorkflows');const w=d.aflWorkflows.find(x=>x.id===${JSON.stringify(ge1.id)});
+    const pe=createNode('prompt',0,300,{name:'PE',text:'change the sky to blue'});w.nodes.push(pe);w.edges.push({id:nid(),from:{node:pe.id,port:'text'},to:{node:${JSON.stringify(ge1.g)},port:'edit'}});
+    const i=store.workflows.findIndex(x=>x.id===w.id);if(i>=0)store.workflows[i]=w;await chrome.storage.local.set({aflWorkflows:d.aflWorkflows});return 1})()`);
+  await bg.ev(`chrome.runtime.sendMessage({ type: 'afl:runWorkflow', id: ${JSON.stringify(ge1.id)}, only: [${JSON.stringify(ge1.g)}] })`);
+  let ge2 = ge1;
+  for (let i = 0; i < 60 && ge2.urls.length < 2; i++) { await sleep(1500); ge2 = await gptPreview('GPT edit'); }
+  const geSent = chatPage ? (await chatPage.ev('window.chatMock.sent')).slice(-1)[0] : null;
+  check('▶ node ChatGPT đã có ảnh + Prompt sửa: sửa tiếp trên ảnh mới nhất, không tạo lại', ge2.status === 'done' && ge2.count === 1 && ge2.urls.length === 2 && /chatedit/.test(ge2.urls[0]) && ge2.urls[1] === ge1.urls[0] && /change the sky to blue/.test(geSent?.text || '') && !/replace the title/.test(geSent?.text || '') && geSent?.attachments === 1, { ge2, geSent });
   await P(`(async()=>{const {store}=await import('./lib/store.js');store.settings.tgEnabled=false;store.save('settings',0);return 1})()`);
 
   await P(`document.querySelector('[data-tab=queue]').click()`);

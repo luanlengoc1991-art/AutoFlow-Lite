@@ -626,7 +626,9 @@ function renderBar() {
   const hasMedia = mediaResults(n).length > 0;
   const prompt = promptOf(n);
   const kids = childrenOf(n.id), branch = descendantsOf(n.id);
-  bar.innerHTML = `${runnable ? `<button data-bar="run" title="Chạy node">${I.play}</button>` : ''}
+  // Đã có ảnh/video và có Prompt sửa nối vào: ▶ sửa tiếp trên bản mới nhất (side panel quyết định).
+  const editsOn = hasMedia && wf.edges.some((e) => e.to.node === n.id && e.to.port === 'edit');
+  bar.innerHTML = `${runnable ? `<button data-bar="run" title="${editsOn ? 'Sửa tiếp trên ảnh mới nhất (Reset node để tạo lại từ đầu)' : 'Chạy node'}">${I.play}</button>` : ''}
     ${kids.length ? `<button data-bar="run-next" class="wide" title="Chạy ${kids.length} node nối từ đây (dùng kết quả đang có của node này)">${I.play}<b>${kids.length}</b></button>` : ''}
     ${branch.length > kids.length ? `<button data-bar="run-branch" title="Chạy tiếp cả nhánh phía sau (${branch.length} node)">⏩</button>` : ''}
     <button data-bar="reset" title="Reset node (xoá kết quả, giữ cấu hình)">${I.refresh}</button>

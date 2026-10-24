@@ -40,11 +40,13 @@
       attachments++;
     }
   });
-  function reply(text) {
+  function reply(text, files = []) {
     const user = document.createElement('li');
     user.setAttribute('data-message-role', 'user');
     user.innerHTML = '<div data-user-message-bubble><p data-user-message-copy></p></div>';
     user.querySelector('p').textContent = text;
+    // Ảnh đính kèm hiện lại trong tin nhắn người dùng (to như ChatGPT thật).
+    for (const src of files) { const im = document.createElement('img'); im.src = src; im.style.cssText = 'width:200px;height:200px;display:block'; user.prepend(im); }
     thread.appendChild(user);
     const bot = document.createElement('li');
     bot.setAttribute('data-message-role', 'assistant');
@@ -88,7 +90,22 @@
       clearInterval(timer);
       // "outside": ảnh nằm ngoài khối câu trả lời; "stuckstop": nút Dừng không biến mất.
       const done = () => { bot.setAttribute('data-message-complete', ''); if (!/stuckstop/i.test(text)) stop.replaceWith(send); else document.body.appendChild(send); box.value = ''; refresh(); };
-      if (answer === 'Creating image') {
+      if (answer === 'Creating image' && files.length) {
+        // Sửa ảnh: ChatGPT hiện ảnh gốc (cùng file) làm nền trong lúc vẽ, không có nút Dừng, rồi mới thay bằng ảnh mới.
+        stop.replaceWith(send);
+        const ph = document.createElement('img');
+        ph.src = files[0];
+        bot.appendChild(ph);
+        setTimeout(() => {
+          ph.remove();
+          md.textContent = 'Image edited';
+          const img = document.createElement('img');
+          img.src = `/asb/chatedit${Date.now()}=w400`;
+          bot.appendChild(img);
+          bot.setAttribute('data-message-complete', '');
+          box.value = ''; refresh();
+        }, 4000);
+      } else if (answer === 'Creating image') {
         setTimeout(() => {
           md.textContent = 'Image created';
           const img = document.createElement('img');
@@ -103,10 +120,11 @@
     const text = box.value.trim();
     if (!text) return;
     window.chatMock.sent.push({ text, attachments });
+    const files = [...document.querySelectorAll('#previews img')].map((i) => i.src);
     box.value = '';
     attachments = 0;
     document.getElementById('previews').innerHTML = '';
-    reply(text);
+    reply(text, files);
   });
 </script>
 </body></html>
