@@ -577,6 +577,9 @@ try {
   const q2 = await adEd.ev(`chrome.runtime.sendMessage({type:'afl:runWorkflow', id:'wfad', only:[${JSON.stringify(editIds.gen)}]})`);
   await sleep(600);
   const qPill = await adEd.ev(`document.querySelector('.node[data-node=${editIds.gen}] .queued-pill')?.textContent || ''`);
+  // Đang chạy g1: node không liên quan mờ + đứng im, dây vào g1 sáng (đường chạy), dây khác mờ.
+  const idleUi = await adEd.ev(`(()=>{const c=(id)=>document.querySelector('.node[data-node="'+id+'"]')?.classList.contains('run-idle');return {g1:c('g1'),v1:c('v1'),queued:c(${JSON.stringify(editIds.gen)}),idleWires:document.querySelectorAll('#edges path.wire.idle').length,routeWires:document.querySelectorAll('#edges path.wire.active:not(.idle)').length}})()`);
+  check('đang chạy: node không liên quan mờ và đứng im, đường chạy sáng', idleUi.g1 === false && idleUi.v1 === true && idleUi.queued === false && idleUi.idleWires > 0 && idleUi.routeWires > 0, idleUi);
   for (let i = 0; i < 60; i++) { await sleep(1500); const subsNow = (await flowPage.ev('window.mock.submits')).length - beforeQ; adState = await P(`document.getElementById('wf-run').innerText`); if (subsNow >= 3 && /đã kết thúc/.test(adState)) break; }
   const qSubs = (await flowPage.ev('window.mock.submits')).slice(beforeQ);
   check('hàng đợi: node bấm chạy khi đang chạy được xếp hàng, hiện "Đang chờ", rồi tự chạy', q1?.ok && !q1.queued && q2?.ok && q2.queued === 1 && /Đang chờ/.test(qPill) && qSubs.length === 3 && qSubs[2].text === 'Change the sneaker to red', { q1, q2, qPill, qSubs: qSubs.map((s) => s.text) });

@@ -183,7 +183,17 @@ function previewHtml(n) {
   return `<div class="viewer has">${src ? `<img src="${esc(src)}" data-full="${esc(m.url || '')}" data-kind="${m.kind}" data-provider="${esc(m.provider || '')}" alt="">` : `<div class="ph">${m.kind === 'video' ? I.video : I.image}</div>`}
     ${m.kind === 'video' ? '<span class="play-badge">▶</span><span class="edit-btns"><button class="edit-btn" data-act="edit-inplace" title="Thêm prompt sửa nối vào node này: bấm ▶ trên prompt đó để tạo lại video với cùng thiết lập + nội dung sửa">✎ Sửa video</button></span>' : `<span class="edit-btns"><button class="edit-btn" data-act="edit-inplace" title="Thêm prompt sửa nối vào node này: bấm ▶ trên prompt đó để sửa chính ảnh đang có">✎ Sửa ảnh</button><button class="edit-btn" data-act="edit-result" title="Chép ảnh sang nhánh mới để sửa riêng (node này giữ nguyên)">⎇</button></span>`}
     <span class="dims" data-info="${esc(m.url || '')}" data-kind="${m.kind}">${esc(mediaInfo.get(m.url) || '')}</span>
-    ${media.length > 1 ? `<div class="pager"><button data-act="page-prev" title="Trước">‹</button><span>${pad(i + 1)}/${pad(media.length)}</span><button data-act="page-next" title="Sau">›</button></div>` : ''}</div>`;
+    ${media.length > 1 ? `<div class="pager"><button data-act="page-prev" title="Trước">‹</button><span title="${esc(pageTip(res, i, media.length))}">${pad(i + 1)}/${pad(media.length)}${pageTag(res, i, media.length)}</span><button data-act="page-next" title="Sau">›</button></div>` : ''}</div>`;
+}
+// Node đã sửa giữ cả bản cũ: các trang đầu (count) là thành phẩm lần chạy cuối, sau đó là bản trước khi sửa.
+const hasOld = (res, total) => res?.count > 0 && total > res.count;
+function pageTag(res, i, total) {
+  if (!hasOld(res, total)) return '';
+  return i < res.count ? ' <b class="pg-tag new">mới nhất</b>' : ' <b class="pg-tag old">bản cũ</b>';
+}
+function pageTip(res, i, total) {
+  if (!hasOld(res, total)) return `Kết quả ${i + 1} trên ${total} · bấm ‹ › để lật`;
+  return i < res.count ? `Bản sửa mới nhất (${i + 1}/${total}) · bấm › xem bản trước khi sửa` : `Bản trước khi sửa (${i + 1}/${total}) · bấm ‹ về bản mới nhất`;
 }
 
 // Ảnh gốc đúng pixel cho node (ảnh thu nhỏ chỉ dùng tạm). Thử tải thẳng URL; trang cần đăng nhập
@@ -401,6 +411,13 @@ function statusOf(n) {
   return st || null;
 }
 let runReset = false;
+// Đang chạy: các node của lần chạy + node đưa dữ liệu vào chúng (dùng lại kết quả cũ). Node khác đứng im, mờ đi.
+function runRelated() {
+  if (!runState?.running || runState.workflowId !== wf.id || runReset) return null;
+  const set = new Set(Object.keys(runState.nodes || {}));
+  for (const e of wf.edges) if (runState.nodes[e.to.node]) set.add(e.from.node);
+  return set;
+}
 
 function buildNode(n) {
   const def = NODE_DEFS[n.type];
@@ -439,6 +456,8 @@ function applyStatus(el, n) {
   el.classList.toggle('running', st?.status === 'running');
   el.classList.toggle('done', st?.status === 'done');
   el.classList.toggle('error', st?.status === 'error');
+  const related = runRelated();
+  el.classList.toggle('run-idle', !!related && !related.has(n.id) && !queuedIds.has(n.id) && n.type !== 'note');
   el.querySelector(':scope > .status')?.remove();
   el.querySelector(':scope > .progress-pill')?.remove();
   el.querySelector('.nb-media > .spinner')?.remove();
@@ -558,6 +577,7 @@ const WIRE_DIM = { text: '#50476a', image: '#303961', video: '#4a3166', frame: '
 const WIRE_ACTIVE = { text: '#9c82e5', image: '#6f8bf7', video: '#b07cf5', frame: '#3cd39f', any: '#bdbdbd' };
 function renderEdges() {
   let html = '';
+  const related = runRelated();
   for (const e of wf.edges) {
     const a = portCenter(e.from.node, 'out', e.from.port), b = portCenter(e.to.node, 'in', e.to.port);
     if (!a || !b) continue;
@@ -571,9 +591,12 @@ function renderEdges() {
     // Dây mang nhiều mục (List, nhiều kết quả): nét đứt.
     const count = fromNode.type === 'list' ? (fromNode.data.items || []).length : (statusOf(fromNode) || (runReset ? null : wf.results?.[fromNode.id]))?.count || 0;
     // Như TobyFlow: dây mờ theo kiểu dữ liệu; đang truyền / nối với node đang chọn thì sáng, dày và có vạch trắng chạy.
-    const active = flowing || selection.has(e.from.node) || selection.has(e.to.node);
+    // Đang chạy: dây dẫn vào node của lần chạy sáng lên (đường chạy), dây khác mờ và đứng im.
+    const route = !!related && !!runState.nodes[e.to.node];
+    const idle = !!related && !route;
+    const active = !idle && (flowing || route || selection.has(e.from.node) || selection.has(e.to.node));
     const stroke = active || selectedEdge === e.id ? (WIRE_ACTIVE[type] || color) : (WIRE_DIM[type] || color);
-    html += `<path class="wire ${flowing ? 'flow' : ''} ${active ? 'active' : ''} ${count > 1 ? 'multi' : ''} ${selectedEdge === e.id ? 'selected' : ''}" d="${d}" stroke="${stroke}" style="color:${stroke}"/>${active ? `<path class="wire-overlay" d="${d}"/>` : ''}<path class="hit" data-edge="${e.id}" d="${d}"/>`;
+    html += `<path class="wire ${flowing ? 'flow' : ''} ${active ? 'active' : ''} ${idle ? 'idle' : ''} ${count > 1 ? 'multi' : ''} ${selectedEdge === e.id ? 'selected' : ''}" d="${d}" stroke="${stroke}" style="color:${stroke}"/>${active ? `<path class="wire-overlay" d="${d}"/>` : ''}<path class="hit" data-edge="${e.id}" d="${d}"/>`;
   }
   if (drag?.kind === 'connect' && drag.to) html += `<path class="temp" d="${drag.reverse ? curve(drag.to, drag.from) : curve(drag.from, drag.to)}" stroke="${PORT_TYPES[drag.type].color}"/>`;
   html += mentionLines();

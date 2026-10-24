@@ -466,3 +466,12 @@ details.adv summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 
 /* Chip phụ (vd. "Chat mới") chỉ hiện khi node đang được chọn. */
 .node:not(.selected) .chip.sel-only { display: none; }
+
+/* Đang chạy: node / dây không thuộc lần chạy mờ đi và đứng im, để thấy rõ đường đang chạy. */
+.node.run-idle { opacity: .35; filter: grayscale(.7); transition: opacity .25s, filter .25s; }
+.node.run-idle .card, .node.run-idle .port, .node.run-idle .nb-media::after { animation: none !important; }
+#edges path.wire.idle { opacity: .2; animation: none; filter: none; }
+/* Lật trang kết quả: nhãn "mới nhất" / "bản cũ" khi node giữ bản trước khi sửa. */
+.pager .pg-tag { font-weight: 600; font-size: 10px; padding: 0 5px; border-radius: 999px; margin-left: 2px; }
+.pager .pg-tag.new { background: hsla(142, 71%, 45%, .25); color: #86efac; }
+.pager .pg-tag.old { background: rgba(255,255,255,.12); color: #ccc; }
