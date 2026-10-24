@@ -91,10 +91,11 @@
       // "outside": ảnh nằm ngoài khối câu trả lời; "stuckstop": nút Dừng không biến mất.
       const done = () => { bot.setAttribute('data-message-complete', ''); if (!/stuckstop/i.test(text)) stop.replaceWith(send); else document.body.appendChild(send); box.value = ''; refresh(); };
       if (answer === 'Creating image' && files.length) {
-        // Sửa ảnh: ChatGPT hiện ảnh gốc (cùng file) làm nền trong lúc vẽ, không có nút Dừng, rồi mới thay bằng ảnh mới.
+        // Sửa ảnh: ChatGPT hiện ảnh gốc làm nền trong lúc vẽ (cùng nội dung nhưng URL blob: mới),
+        // không có nút Dừng, rồi mới thay bằng ảnh mới.
         stop.replaceWith(send);
         const ph = document.createElement('img');
-        ph.src = files[0];
+        fetch(files[0]).then((r) => r.blob()).then((b) => { ph.src = URL.createObjectURL(b); });
         bot.appendChild(ph);
         setTimeout(() => {
           ph.remove();

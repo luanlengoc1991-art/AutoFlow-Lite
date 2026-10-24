@@ -11,7 +11,7 @@ const crc = (b) => { let c = ~0; for (const x of b) c = crcT[(c ^ x) & 255] ^ (c
 const chunk = (t, d) => { const l = Buffer.alloc(4); l.writeUInt32BE(d.length); const td = Buffer.concat([Buffer.from(t), d]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([l, td, c]); };
 function png(w, h, seed) {
   const raw = Buffer.alloc((w * 3 + 1) * h);
-  for (let y = 0; y < h; y++) { raw[y * (w * 3 + 1)] = 0; for (let x = 0; x < w; x++) { const i = y * (w * 3 + 1) + 1 + x * 3; raw[i] = (x + seed) & 255; raw[i + 1] = (y * 2) & 255; raw[i + 2] = (seed * 7) & 255; } }
+  for (let y = 0; y < h; y++) { raw[y * (w * 3 + 1)] = 0; for (let x = 0; x < w; x++) { const i = y * (w * 3 + 1) + 1 + x * 3; raw[i] = (x + seed) & 255; raw[i + 1] = (y * 2 + seed * 11) & 255; raw[i + 2] = (seed * 7) & 255; } }
   const ih = Buffer.alloc(13); ih.writeUInt32BE(w, 0); ih.writeUInt32BE(h, 4); ih[8] = 8; ih[9] = 2;
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ih), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
 }
@@ -59,7 +59,8 @@ http.createServer(async (req, res) => {
   if (req.url.startsWith('/asb/')) {
     if (req.url.endsWith('/video')) { res.writeHead(200, { 'content-type': 'video/mp4' }); res.end(Buffer.alloc(2048)); return; }
     res.writeHead(200, { 'content-type': 'image/png' });
-    res.end(png(400, 300, req.url.length * 13));
+    // Mỗi URL một ảnh khác hẳn (theo mã băm, không theo độ dài): AutoFlow so nội dung ảnh để bỏ ảnh đính kèm.
+    res.end(png(400, 300, [...req.url].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % 251));
     return;
   }
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });

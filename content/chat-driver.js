@@ -278,6 +278,56 @@
       if (inUser || beforeEl) job.inputKeys.add(imgKey(src));
     }
   }
+  // Dấu vân tay nội dung ảnh (lưới xám 32x32 + tỷ lệ khung): ChatGPT hiện lại ảnh đính kèm (ảnh nền lúc vẽ,
+  // ảnh trong tin nhắn) bằng URL blob: mới mỗi lần, nên so URL không nhận ra; so điểm ảnh thì nhận ra.
+  const PRINT = 32;
+  const prints = new Map(); // src -> vân tay | null (đang tải) | false (không đọc được)
+  function printImg(img) {
+    if (!img.naturalWidth || !img.naturalHeight) return null;
+    try {
+      const c = document.createElement('canvas');
+      c.width = c.height = PRINT;
+      const g = c.getContext('2d', { willReadFrequently: true });
+      g.drawImage(img, 0, 0, PRINT, PRINT);
+      const d = g.getImageData(0, 0, PRINT, PRINT).data;
+      const px = new Uint8Array(PRINT * PRINT);
+      for (let i = 0; i < px.length; i++) px[i] = (d[i * 4] * 3 + d[i * 4 + 1] * 6 + d[i * 4 + 2]) / 10;
+      return { ratio: img.naturalWidth / img.naturalHeight, px };
+    } catch (_) { return false; } // ảnh khác nguồn (canvas bị khoá)
+  }
+  function loadPrint(src) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(printImg(img) || false);
+      img.onerror = () => resolve(false);
+      img.src = src;
+    });
+  }
+  // Vân tay của ảnh đang hiện; chưa tải xong thì tải riêng ở nền và trả null (lần kiểm tra sau mới có).
+  function printOf(src) {
+    if (prints.has(src)) return prints.get(src);
+    const el = [...document.querySelectorAll('img')].find((i) => (i.currentSrc || i.src) === src && i.complete);
+    const p = el ? printImg(el) : null;
+    if (p !== null) { prints.set(src, p); return p; }
+    prints.set(src, null);
+    loadPrint(src).then((v) => prints.set(src, v));
+    return null;
+  }
+  // Cùng một ảnh (kể cả bản nén/thu nhỏ lại); ảnh sửa do AI vẽ lại luôn lệch xa hơn ngưỡng này.
+  function samePrint(a, b) {
+    if (!a || !b || Math.abs(a.ratio - b.ratio) > 0.02 * b.ratio) return false;
+    let diff = 0;
+    for (let i = 0; i < a.px.length; i++) diff += Math.abs(a.px[i] - b.px[i]);
+    return diff / a.px.length < 3;
+  }
+  // Ảnh này có phải ảnh đính kèm không: true / false / null (chưa đọc được, chờ lần sau).
+  function isInputImage(job, src) {
+    if (!job.refPrints?.length) return false;
+    const p = printOf(src);
+    if (p === null) return null;
+    return !!p && job.refPrints.some((r) => samePrint(p, r));
+  }
+
   function turnComplete(el) {
     if (!el || !cfg.complete?.length) return null;
     const scope = el.closest('article, li, [data-testid^="conversation-turn-"]') || el;
@@ -362,8 +412,10 @@
     }
     const s = await setText(task.prompt);
     if (!s.ok) return { ok: false, error: s.error, category: 'error' };
+    const refPrints = task.chatMode !== 'text' && task.refs?.length ? (await Promise.all(task.refs.map((r) => loadPrint(r.dataUrl)))).filter(Boolean) : [];
     const token = `chat-${Date.now()}-${++jobSeq}`;
     jobs.set(token, {
+      refPrints,
       token, before: new Set(responses()), prompt: compact(task.prompt), wantImage: task.chatMode !== 'text', wantVideo: !!task.wantVideo,
       startedAt: Date.now(), sig: '', lastChange: Date.now(), beforeImgs: new Set(task.chatMode !== 'text' ? pageImages() : []), inputKeys: new Set(),
       beforeLines: new Set(convLines()), promptLines: new Set(String(task.prompt).split('\n').map((l) => compact(l)).filter(Boolean))
@@ -425,7 +477,8 @@
     // Dự phòng: ảnh mới xuất hiện trong khung hội thoại kể từ lúc gửi (ảnh nằm ngoài phần tử câu trả lời).
     if (job.wantImage && !images.length && !(job.wantVideo && videos.length)) images = pageImages().filter((src) => !job.beforeImgs.has(src));
     if (job.wantImage) noteInputImages(job, el);
-    images = images.filter((src) => afterUserTurn(src) && !job.inputKeys.has(imgKey(src)));
+    // Ảnh trùng nội dung ảnh đính kèm (ảnh nền lúc đang vẽ) không phải kết quả; chưa đọc được thì chờ.
+    images = images.filter((src) => afterUserTurn(src) && !job.inputKeys.has(imgKey(src)) && isInputImage(job, src) === false);
     const sig = `${text.length}|${images.join(',')}|${videos.join(',')}`;
     if (sig !== job.sig) { job.sig = sig; job.lastChange = now; }
     const stable = now - job.lastChange;
